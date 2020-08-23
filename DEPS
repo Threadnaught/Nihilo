@@ -1,0 +1,1 @@
+sudo apt install libleveldb-dev libmbedtls-dev
