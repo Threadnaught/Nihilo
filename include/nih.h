@@ -1,6 +1,7 @@
 #pragma once
 
 #include <iostream>
+#include <mutex>
 
 #define fail_check(condition, bad_ret) if(!condition) {std::cerr<<"bad fail check: "<<__func__<<"() at line "<<__LINE__<<"\n"; return bad_ret;}
 #define fail_false(condition) fail_check(condition, false)
@@ -31,4 +32,24 @@ struct task{};
 
 namespace crypt{
 	int calc_encrypted_size(int bodylen);
+}
+
+namespace thread{
+	template <typename T> class locker{
+		public:
+			locker(T wraps);
+			T* acquire();
+			void release();
+		private:
+			T contains;
+			std::mutex mutex;
+	};
+}
+
+namespace compute{
+	void init(int thread_count);
+}
+
+namespace talk{
+	void init(int port);
 }

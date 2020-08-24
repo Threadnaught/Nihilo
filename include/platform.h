@@ -4,7 +4,6 @@
 
 #include "nih.h"
 
-//recall:
 namespace recall{
 	bool init(const char* dbpath);//dbpath can be empty string if not relevant for platform
 	bool write(const char* key, const unsigned char* data, int datalen);//write key/value pair into db
@@ -12,7 +11,6 @@ namespace recall{
 	char* next(const char* prev_key);//find next key after given key
 }
 
-//crypt:
 namespace crypt{
 	//AES functions:
 	bool encrypt(const unsigned char* secret, const unsigned char* to_encrypt, int to_encrypt_len, unsigned char* encrypted_buf);
@@ -25,7 +23,6 @@ namespace crypt{
 	bool id_from_pub(const unsigned char* pub, unsigned char* id);
 }
 
-//compute:
 namespace compute{
 
 }
