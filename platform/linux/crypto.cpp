@@ -8,7 +8,7 @@
 
 #include"../../include/platform.h"
 
-namespace crypt{
+namespace crypto{
 	bool encrypt(const unsigned char* secret, const unsigned char* to_encrypt, int to_encrypt_len, unsigned char* encrypted_buf){
 		//verify valid size:
 		fail_false(to_encrypt_len % aes_block_size != 0);

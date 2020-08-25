@@ -4,5 +4,5 @@ default: *.o ../../include/*.h ../../src/*.o
 recall.o: recall.cpp ../../include/*.h
 	g++ -c recall.cpp
 
-crypt.o: crypt.cpp ../../include/*.h
-	g++ -c crypt.cpp
+crypto.o: crypto.cpp ../../include/*.h
+	g++ -c crypto.cpp

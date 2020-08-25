@@ -1,6 +1,6 @@
-.PHONY: linux
-linux: src/*.o
+.PHONY: linux srcs
+linux: srcs
 	$(MAKE) -C platform/linux/
 
-src/*.o:
+srcs:
 	$(MAKE) -C src/

@@ -11,7 +11,7 @@ namespace recall{
 	char* next(const char* prev_key);//find next key after given key
 }
 
-namespace crypt{
+namespace crypto{
 	//AES functions:
 	bool encrypt(const unsigned char* secret, const unsigned char* to_encrypt, int to_encrypt_len, unsigned char* encrypted_buf);
 	bool decrypt(const unsigned char* secret, unsigned char* to_decrypt, int to_decrypt_len, unsigned char* decrypted_buf);
