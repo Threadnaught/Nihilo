@@ -6,9 +6,9 @@ A distinct, but intimately related task is resolving. Resolving will build on ad
 
 For the purposes of this document, a **MACHINE IDENTIFIER** is the public key of a target machine. Although it is cryptographically guaranteed to uniquely identify a machine, it cannot be translated into a TCP endpoint because it is not known what IP address it is hosted on. A **MACHINE ADDRESS** is required;
 
-**MACHINE ADDRESS** = **IP/DNS ADDRESS**~**MACHINE IDENTIFIER**
+**MACHINE ADDRESS** = **IP/DNS ADDRESS**(:**PORT**)~**MACHINE IDENTIFIER**
 
-Every host stores a public machine registry, holding all of the currently publicly exposed machines on the host. Sending a packet to example.com~2480D44A07F768AB3ED29230C93E50DC99F6D8B2FC16C4C340D6BD028A0C32C1 will establish a connection with the host at example.com, and then query it for the machine with that public key.
+A port is optional. Every host stores a public machine registry, holding all of the currently publicly exposed machines on the host. Sending a packet to example.com~2480D44A07F768AB3ED29230C93E50DC99F6D8B2FC16C4C340D6BD028A0C32C1 will establish a connection with the host at example.com, and then query it for the machine with that public key.
 
 ## Extensions
 
@@ -16,7 +16,7 @@ Every host stores a public machine registry, holding all of the currently public
 
 One option is to add the option of setting a **MACHINE ALIAS** for each machine. The aliases would need a defined set of allowed characters and a max length (copying from DNS is fine). The mechanics of ownership, transfer, and contention of these aliases is unclear at this time. One option for how this could look follows;
 
-**MACHINE ADDRESS** = **IP/DNS ADDRESS**#**MACHINE ALIAS**
+**MACHINE ADDRESS** = **IP/DNS ADDRESS**(:**PORT**)#**MACHINE ALIAS**
 
 ### Expanding The Registry (Resolving)
 
