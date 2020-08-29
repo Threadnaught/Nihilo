@@ -2,6 +2,6 @@ It's a good thing to keep track of potential attacks on your software as you wri
 
 BLACKHATS KEEP OUT.
 
-| Origin | Type | Severity |
-| ------ | ---- | -------- |
-| A | B | C |
+| Origin 		 | Type 		 | Severity 	 | Notes		|
+| -				 | -			 | -			 |				|
+| A | B | C | D |
