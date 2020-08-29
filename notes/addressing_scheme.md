@@ -1,6 +1,6 @@
 As referenced in my dissertation, addressing is an important but as yet neglected part of expanding Nihilo beyond a toy.
 
-A distinct, but intimatley related task is resolving. Resolving will build on addressing, allowing for efficent peer discovery over the Nihilo protocol itself.
+A distinct, but intimatley related task is resolving. Resolving will build on addressing, allowing for efficent host discovery over the Nihilo protocol itself.
 
 ## Minimal Implementation
 
@@ -8,6 +8,20 @@ For the purposes of this document, a **MACHINE IDENTIFIER** is the public key of
 
 **MACHINE ADDRESS** = **IP/DNS ADDRESS**~**MACHINE IDENTIFIER**
 
-Initially, 
+Every host stores a public machine registry, holding all of the currently publicly exposed machines on the host. Sending a packet to example.com~2480D44A07F768AB3ED29230C93E50DC99F6D8B2FC16C4C340D6BD028A0C32C1 will extablish a connection with the host at example.com, and then query it for the machine with that public key.
 
 ## Extensions
+
+### Aliases
+
+One option is to add the option of setting a **MACHINE ALIAS** for each machine. The aliases would need a defined set of allowed characters and a max length (copying from DNS is fine). The mechanics of ownership, transfer, and contention of these aliases is unclear at this time. One option for how this could look follows;
+
+**MACHINE ADDRESS** = **IP/DNS ADDRESS**#**MACHINE ALIAS**
+
+### Expanding The Registry (Resolving)
+
+A well engineered registry would not just advise of its own machines, but also keep a record of known machines on other hosts of interest. This would allow for everything from a DNS-like centralised protocol to allowing decentralised peer discovery in a small network. Queries would work the same way, but the protocol would have to be re-engineered to support redirects.
+
+### Signal Pathfinding
+
+Another possibility is allowing Nihilo nodes to be lightweight nodes in a bluetooth (or heterogenous) network. This would involve nodes working together to redirect signals through efficent routes. Mesh networks tend to be kind of janky (there's a reason why backhaul and core infrastructure is so damn exspensive), and it would probably take a whole PhD to do right, even assuming none of the nodes are mallicious.
