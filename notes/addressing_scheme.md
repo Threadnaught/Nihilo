@@ -29,6 +29,7 @@ A well engineered registry would not just advise of its own machines, but also k
 Like DNS it may be useful to chain resolves together, as follows;
 
 MACHINE ADDRESS = MACHINE ADDRESS~MACHINE IDENTIFIER(:PORT)
+
 MACHINE ADDRESS = MACHINE ADDRESS@MACHINE ALIAS(:PORT)
 
 For example; example.com@test1@test2
