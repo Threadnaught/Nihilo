@@ -38,7 +38,7 @@ Omitting the identifier or alias could imply the default machine on a given host
 example.com~
 example.com@
 
-Would query the default machine hosted on example.com
+Would query the default machine hosted on example.com.
 
 ### Chaining
 
