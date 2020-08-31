@@ -24,8 +24,9 @@ struct host{
 
 std::vector<host> hosts;
 
-void send_task_worker_thread(task* t){ //ONLY TO BE CALLED FROM THE TALK WORKER THREAD
-	
+void send_comm(task* t){ //ONLY TO BE CALLED FROM THE TALK WORKER THREAD
+	std::cerr<<"calling "<<t->t.function_name<<" on "<<t->dest_addr<<"\n";
+	delete t;
 }
 
 void drop(int con_no){
@@ -51,6 +52,17 @@ bool run_talk_worker(int port){
 	std::cout<<"listening\n";
 	while(1){
 		//transmit comm queue
+		while(1){
+			auto c = comm_queue.acquire();
+			//if there is nothing to transmit, release and quit
+			if(c->size() == 0){
+				comm_queue.release();
+				break;
+			}
+			send_comm(c->front());
+			c->pop();
+			comm_queue.release();
+		}
 		//poll fresh incoming connections:
 		pollfd listener_poll;
 		listener_poll.fd = listener_no;
