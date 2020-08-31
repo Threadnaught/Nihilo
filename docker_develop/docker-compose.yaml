@@ -1,0 +1,18 @@
+version: '3'
+services:
+  nihilo_host:
+    build: ./vanilla
+    environment:
+       cmd: /home/bin/nih
+    volumes:
+      - ../:/home/
+
+  pinger:
+    build: ./vanilla
+    environment:
+      cmd: /home/bin/nih nihilo_host~2480D44A07F768AB3ED29230C93E50DC99F6D8B2FC16C4C340D6BD028A0C32C1
+    volumes:
+      - ../:/home/
+    depends_on:
+      - nihilo_host
+    
