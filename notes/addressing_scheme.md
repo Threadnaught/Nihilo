@@ -29,6 +29,7 @@ A well engineered registry would not just advise of its own machines, but also k
 Omitting the IP/DNS address could imply some default (maybe centralised) server. For example;
 
 ~2480D44A07F768AB3ED29230C93E50DC99F6D8B2FC16C4C340D6BD028A0C32C1
+
 @example
 
 Would query the identifiers and aliases against a default Nihilo server.
@@ -36,6 +37,7 @@ Would query the identifiers and aliases against a default Nihilo server.
 Omitting the identifier or alias could imply the default machine on a given host. For example;
 
 example.com~
+
 example.com@
 
 Would query the default machine hosted on example.com.
