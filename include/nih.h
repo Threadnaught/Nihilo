@@ -4,7 +4,7 @@
 #include <mutex>
 #include <errno.h>
 
-#define fail_check(condition, bad_ret) if(!condition) {std::cerr<<"error "<<errno<<": "<<__func__<<"() line "<<__LINE__<<"\n"; return bad_ret;}
+#define fail_check(condition, bad_ret) if(!(condition)) {std::cerr<<"error "<<errno<<": "<<__func__<<"() line "<<__LINE__<<"\n"; return bad_ret;}
 #define fail_false(condition) fail_check(condition, false)
 
 //size in bytes len in chars
@@ -15,7 +15,7 @@
 #define shared_secret_size 16
 #define aes_block_size 16
 #define tcp_port 7328
-#define con_timeout 30
+#define con_timeout 5
 #define max_packet_size 512
 #define max_func_len 20
 #define max_address_len 100

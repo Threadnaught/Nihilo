@@ -10,6 +10,7 @@ int main(int argc, char** argv){
 		unsigned char dummy[ecc_pub_size];
 		crypto::rng(nullptr, dummy, ecc_pub_size);
 		compute::copy_to_queue(argv[1], dummy, "test", nullptr, nullptr, nullptr, 0);
+		compute::copy_to_queue(argv[1], dummy, "test1", nullptr, nullptr, nullptr, 0);
 		talk::init(tcp_port);
 	}
 	else{

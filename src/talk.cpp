@@ -33,7 +33,7 @@ bool send_comm(task* t){ //ONLY TO BE CALLED FROM THE TALK WORKER THREAD
 	char* identifier = strstr(hostname, "~");
 	identifier[0] = '\0';
 	identifier++;
-	std::cerr<<"hostname: "<<hostname<<" identifier: "<<identifier<<"\n";
+	//std::cerr<<"hostname: "<<hostname<<" identifier: "<<identifier<<"\n";
 	//TODO: PORT, ALIASES, CHAINING ETC.
 	//open socket:
 	int connection_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
@@ -51,6 +51,7 @@ bool send_comm(task* t){ //ONLY TO BE CALLED FROM THE TALK WORKER THREAD
 	int host_index = -1;
 	for(int i = 0; i < hosts.size(); i++)
 		if((fresh_con.addr.sin_addr.s_addr == hosts[i].addr.sin_addr.s_addr) && (fresh_con.addr.sin_port == hosts[i].addr.sin_port)){
+			std::cerr<<"found!\n";
 			host_index = i;
 			break;
 		}
