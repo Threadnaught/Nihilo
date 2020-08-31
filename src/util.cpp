@@ -5,20 +5,5 @@ int crypto::calc_encrypted_size(int bodylen){//Round up to the nearest block siz
 	return (blockno + 1) * aes_block_size;
 }
 
-
 namespace thread{
-	//locker functions:
-	template <typename T> 
-	locker<T>::locker(T wraps){
-		contains = wraps;
-	}
-	template <typename T> 
-	T* locker<T>::acquire(){
-		mutex.lock();
-		return &contains;
-	}
-	template <typename T> 
-	void locker<T>::release(){
-		mutex.unlock();
-	}
 }

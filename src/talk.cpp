@@ -11,22 +11,27 @@
 
 #include "../include/platform.h"
 
-thread::locker<std::queue<task>> comm_queue(std::queue<task>());
+thread::locker<std::queue<task*>> comm_queue;
 
-struct open_connection{
+struct host{
 	int fd;
 	sockaddr_in addr; 
 	time_t timeout;//TODO
 	bool is_packet_waiting;
 	packet_header waiting_packet;
+	std::vector<machine> known_machines;
 };
 
-std::vector<open_connection> open_connections;
+std::vector<host> hosts;
+
+void send_task_worker_thread(task* t){ //ONLY TO BE CALLED FROM THE TALK WORKER THREAD
+	
+}
 
 void drop(int con_no){
-	shutdown(open_connections[con_no].fd, SHUT_RDWR);
-	close(open_connections[con_no].fd);
-	open_connections.erase(open_connections.begin() + con_no);
+	shutdown(hosts[con_no].fd, SHUT_RDWR);
+	close(hosts[con_no].fd);
+	hosts.erase(hosts.begin() + con_no);
 }
 
 bool run_talk_worker(int port){
@@ -47,14 +52,14 @@ bool run_talk_worker(int port){
 	while(1){
 		//transmit comm queue
 		//poll fresh incoming connections:
-		pollfd polls;
-		polls.fd = listener_no;
-		polls.events = POLLIN;
-		polls.revents = 0;
-		poll(&polls, open_connections.size()+1, 0);
+		pollfd listener_poll;
+		listener_poll.fd = listener_no;
+		listener_poll.events = POLLIN;
+		listener_poll.revents = 0;
+		poll(&listener_poll, hosts.size()+1, 0);
 		//if there is an incoming connection...
-		if(polls.revents != 0){
-			open_connection con;
+		if(listener_poll.revents != 0){
+			host con;
 			socklen_t other_len = sizeof(sockaddr_in);
 			//accept the connection
 			int connection_no = accept(listener_no, (sockaddr*) &con.addr, &other_len);
@@ -62,42 +67,42 @@ bool run_talk_worker(int port){
 			if(connection_no >= 0){
 				con.fd = connection_no;
 				con.timeout = time(NULL) + con_timeout;
-				open_connections.push_back(con);
+				hosts.push_back(con);
 			}
 		}
 		//iterate over known connections
-		for(int i = 0; i < open_connections.size(); i++){
+		for(int i = 0; i < hosts.size(); i++){
 			//count waiting bytes
 			int count;
-			ioctl(open_connections[i].fd, FIONREAD, &count);
+			ioctl(hosts[i].fd, FIONREAD, &count);
 			if(count > 0){
 				//if no packet is currently waiting, and a header is in the pipe...
-				if((!open_connections[i].is_packet_waiting) && count >= sizeof(packet_header)){
+				if((!hosts[i].is_packet_waiting) && count >= sizeof(packet_header)){
 					//read the header
-					read(open_connections[i].fd, &open_connections[i].waiting_packet, sizeof(packet_header));
+					read(hosts[i].fd, &hosts[i].waiting_packet, sizeof(packet_header));
 					//if the packet is too long, drop the connection
-					if(open_connections[i].waiting_packet.contents_length > max_packet_size){
+					if(hosts[i].waiting_packet.contents_length > max_packet_size){
 						std::cout<<"dropping (packet too long)\n";
 						drop(i--);
 						continue;
 					}
 					//if not, set packet is waiting and bump the timeout
-					open_connections[i].is_packet_waiting = true;
-					open_connections[i].timeout = time(NULL) + con_timeout;
+					hosts[i].is_packet_waiting = true;
+					hosts[i].timeout = time(NULL) + con_timeout;
 				}
 				//if a packet is waiting, and a body is in the pipe
-				if(open_connections[i].is_packet_waiting && count >= open_connections[i].waiting_packet.contents_length){
+				if(hosts[i].is_packet_waiting && count >= hosts[i].waiting_packet.contents_length){
 					std::cout<<"receiving body\n";
 					//read it off the pipe
-					char* inbuf = new char[crypto::calc_encrypted_size(open_connections[i].waiting_packet.contents_length)];
-					read(open_connections[i].fd, inbuf, crypto::calc_encrypted_size(open_connections[i].waiting_packet.contents_length));
+					char* inbuf = new char[crypto::calc_encrypted_size(hosts[i].waiting_packet.contents_length)];
+					read(hosts[i].fd, inbuf, crypto::calc_encrypted_size(hosts[i].waiting_packet.contents_length));
 					delete inbuf;//TODO: do something with it
-					open_connections[i].is_packet_waiting = false;
-					open_connections[i].timeout = time(NULL) + con_timeout;
+					hosts[i].is_packet_waiting = false;
+					hosts[i].timeout = time(NULL) + con_timeout;
 				}
 			}
 			//if connection has timed out, drop it
-			if(open_connections[i].timeout < time(NULL)){
+			if(hosts[i].timeout < time(NULL)){
 				std::cout<<"dropping (timeout)\n";
 				drop(i--);
 				continue;
@@ -105,6 +110,11 @@ bool run_talk_worker(int port){
 		}
 
 	}
+}
+
+void talk::copy_to_comm_queue(task* t){
+	comm_queue.acquire()->push(t);
+	comm_queue.release();
 }
 
 void talk::init(int port){
