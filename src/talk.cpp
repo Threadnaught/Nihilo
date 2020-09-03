@@ -25,7 +25,7 @@ struct host{
 
 std::vector<host> hosts;
 
-bool send_comm(task* t){ //ONLY TO BE CALLED FROM THE TALK WORKER THREAD
+bool send_comm(task* t){ //THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK WORKER THREAD
 	//std::cerr<<"calling "<<t->t.function_name<<" on "<<t->dest_addr<<"\n";
 	//split hostname/machine identifier
 	char hostname[max_address_len];
@@ -41,7 +41,7 @@ bool send_comm(task* t){ //ONLY TO BE CALLED FROM THE TALK WORKER THREAD
 	//DNS/IP lookup:
 	hostent* target_ent = gethostbyname(hostname);
 	fail_false(target_ent != nullptr);
-	//ONLY USEFUL ON A FRESH CONNECTION, USE host_index FOR A FOUND OR FRESH CONNECTION
+	//fresh_con ONLY USEFUL FOR A FRESH CONNECTION, USE host_index FOR EITHER A FOUND OR FRESH CONNECTION
 	host fresh_con;
 	memset(&fresh_con.addr, 0, sizeof(sockaddr_in));
 	fresh_con.addr.sin_family = AF_INET;
@@ -65,7 +65,13 @@ bool send_comm(task* t){ //ONLY TO BE CALLED FROM THE TALK WORKER THREAD
 	}
 	//reset timeout:
 	hosts[host_index].timeout = time(NULL) + con_timeout;
-	
+	hex_to_bytes_array(receiver_pub, identifier, ecc_pub_size);
+	unsigned char sender_priv[ecc_priv_size];
+	fail_false(compute::get_priv(t->origin_pub, sender_priv));
+	unsigned char secret[shared_secret_size];
+	crypto::derrive_shared(sender_priv, receiver_pub, secret);
+	bytes_to_hex_array(secret_hex, secret, shared_secret_size);
+	std::cerr<<"secret: "<<secret_hex<<"\n";
 	delete t;
 	return true;
 }
@@ -105,6 +111,7 @@ bool run_talk_worker(int port){
 			comm_queue.release();
 			if(!send_comm(next)){
 				std::cerr<<"error sending comm\n";
+				//TODO: decrement retry count, or schedule on_failure
 				delete next;
 			}
 		}
@@ -173,7 +180,7 @@ bool run_talk_worker(int port){
 	}
 }
 
-void talk::copy_to_comm_queue(task* t){
+void talk::add_to_comm_queue(task* t){
 	comm_queue.acquire()->push(t);
 	comm_queue.release();
 }
@@ -181,4 +188,3 @@ void talk::copy_to_comm_queue(task* t){
 void talk::init(int port){
 	run_talk_worker(port);//TODO: threading
 }
-

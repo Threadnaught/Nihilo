@@ -8,7 +8,7 @@ int main(int argc, char** argv){
 	if(argc == 2){
 		std::cerr<<"pinging "<<argv[1]<<"\n";
 		unsigned char dummy[ecc_pub_size];
-		crypto::rng(nullptr, dummy, ecc_pub_size);
+		compute::new_machine(dummy);
 		compute::copy_to_queue(argv[1], dummy, "test", nullptr, nullptr, nullptr, 0);
 		compute::copy_to_queue(argv[1], dummy, "test1", nullptr, nullptr, nullptr, 0);
 		talk::init(tcp_port);

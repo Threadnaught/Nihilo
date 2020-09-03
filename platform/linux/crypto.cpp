@@ -65,9 +65,13 @@ namespace crypto{
 		fail_false(mbedtls_mpi_read_binary(&ecc.d, alice_priv, ecc_priv_size) == 0);
 		//create secret:
 		fail_false(mbedtls_ecdh_compute_shared(&ecc.grp, &ecc.z, &ecc.Qp, &ecc.d, rng, NULL) == 0);
-		fail_false(mbedtls_mpi_size(&ecc.z) == shared_secret_size);
+		int shared_size = mbedtls_mpi_size(&ecc.z);
+		fail_false(shared_size >= shared_secret_size);
 		//write into secret_buf
-		fail_false(mbedtls_mpi_write_binary(&ecc.z, secret_buf, 32) == 0);
+		unsigned char* intermediate_secret_buf = new unsigned char[shared_size];
+		fail_false(mbedtls_mpi_write_binary(&ecc.z, intermediate_secret_buf, shared_size) == 0);
+		memcpy(secret_buf, intermediate_secret_buf, shared_secret_size);
+		delete intermediate_secret_buf;
 		//cleanup
 		mbedtls_ecdh_free(&ecc);
 		return true;

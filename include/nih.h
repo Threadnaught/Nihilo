@@ -4,9 +4,6 @@
 #include <mutex>
 #include <errno.h>
 
-#define fail_check(condition, bad_ret) if(!(condition)) {std::cerr<<"error "<<errno<<": "<<__func__<<"() line "<<__LINE__<<"\n"; return bad_ret;}
-#define fail_false(condition) fail_check(condition, false)
-
 //size in bytes len in chars
 
 #define ID_size 12
@@ -27,10 +24,7 @@ struct machine_keypair{
 
 struct machine{
 	unsigned char ID[ID_size];
-	char ID_str[(ID_size*2)+1];
 	machine_keypair keypair;
-	bool local;
-	char IP[20];
 };
 
 struct packet_header{
@@ -79,9 +73,20 @@ namespace thread{
 namespace compute{
 	void init(int thread_count);
 	bool copy_to_queue(const char* dest_addr, const unsigned char* origin_pub, const char* function_name, const char* on_success, const char* on_failure, const unsigned char* param, int paramlen);
+	bool get_pub(unsigned char* id, unsigned char* pub_out);
+	bool get_priv(unsigned char* pub, unsigned char* priv_out);
+	void new_machine(unsigned char* pub_out);
 }
 
 namespace talk{
 	void init(int port);
-	void copy_to_comm_queue(task* t);
+	void add_to_comm_queue(task* t);
 }
+
+void bytes_to_hex(unsigned char* bytes, int bytes_len, char* hexbuffer);
+void hex_to_bytes(char* hexbuffer, unsigned char* bytes);
+
+#define fail_check(condition, bad_ret) if(!(condition)) {std::cerr<<"error "<<errno<<": "<<__func__<<"() line "<<__LINE__<<"\n"; return bad_ret;}
+#define fail_false(condition) fail_check(condition, false)
+#define bytes_to_hex_array(name, bytes, len) char name[(len*2)+1]; bytes_to_hex(bytes, len, name);
+#define hex_to_bytes_array(name, str, len) unsigned char name[len]; hex_to_bytes(str, name);
