@@ -14,9 +14,9 @@ Fixing this without creating session variables and keeping it stateless would be
 
 ### POTENTIAL FIX
 
-- Create a new connection config header (useful in other ways)
-- Embed 16-32 bytes of random in header (in the clear)
-- Encrypted body contains randomness from config in all communications in session, to guard against packet reuse between sessions
-- Encrypted body also contains sequence number, to guard against packet reuse within sessions
+1. Create a new connection config header (useful in other ways)
+2. Embed 16-32 bytes of randomness in header (in the clear)
+3. Encrypted body contains randomness from config in all communications in session, to guard against packet reuse between sessions
+4. Encrypted body also contains sequence number, to guard against packet reuse within sessions
 
 Both peers in the connection should have its own randomness and sequence counter, to make synchronisation easier.
