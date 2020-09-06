@@ -4,11 +4,36 @@
 
 #include "../include/platform.h"
 
-thread::locker<std::queue<task*>> task_queue;
+thread::locker<std::queue<host_task*>> task_queue;
 thread::locker<std::vector<machine>> local_machines;
 
-void compute::init(int thread_count){
-	//TODO: LOAD MACHINES FROM DISK INTO local_machines
+bool compute::init(int thread_count){
+	//load machines into local_machines:
+	int table_len;
+	unsigned char* table = recall::read("machines_table", &table_len);
+	//if the table cannot be found, recreate db
+	if(table == nullptr){
+		std::cerr<<"recreating DB\n";
+		unsigned char c;
+		recall::write("machines_table", &c, 0);
+		unsigned char new_pub[ecc_pub_size];
+		new_machine(new_pub);
+		table = recall::read("machines_table", &table_len);
+	}
+	std::cerr<<"table size: "<<table_len<<"\n";
+	fail_false(table_len % ecc_pub_size == 0);
+	auto locals = local_machines.acquire();
+	for(int i = 0; i < table_len; i += ecc_pub_size){
+		int m_len;
+		bytes_to_hex_array(pub_hex, table + i, ecc_pub_size);
+		std::cerr<<"loading machine "<<pub_hex<<"\n";
+		machine* m = (machine*)recall::read(pub_hex, &m_len);
+		fail_false(m_len == sizeof(machine));
+		locals->push_back(*m);
+	}
+	local_machines.release();
+	delete table;
+	return true;
 }
 
 
@@ -29,7 +54,8 @@ bool compute::copy_to_queue(const char* dest_addr, const unsigned char* origin_p
 	if(on_failure != nullptr) fail_false(!(strlen(on_failure) > max_func_len));
 	fail_false(!(paramlen > max_packet_size));//this probably needs some tuning
 	//construt task
-	task* t = (task*)malloc(sizeof(task) + paramlen);
+	host_task* t = (host_task*)malloc(sizeof(host_task) + paramlen);
+	memset(t, 0, sizeof(host_task));//don't want to expose any memory now, do we?
 	strncpy(t->dest_addr, dest_addr, max_address_len);
 	strncpy(t->t.function_name, function_name, max_func_len);
 	if(on_success != nullptr) strncpy(t->t.on_success, function_name, max_func_len);
@@ -52,7 +78,6 @@ bool compute::get_pub(unsigned char* id, unsigned char* pub_out){
 }
 bool compute::get_priv(unsigned char* pub, unsigned char* priv_out){
 	auto m = local_machines.acquire();
-	
 	//this O(N) comparison brings pain to my soul and shame to my descendents
 	for(auto it = m->begin(); it != m->end(); it++){
 		if(memcmp(it->keypair.ecc_pub, pub, ecc_pub_size) == 0){
@@ -65,13 +90,29 @@ bool compute::get_priv(unsigned char* pub, unsigned char* priv_out){
 	return false;
 }
 void compute::new_machine(unsigned char* pub_out){
+	//gen keypair:
 	unsigned char priv[ecc_priv_size];
 	crypto::gen_ecdh_keypair(pub_out, priv);
+	//fill out machine:
 	machine m;
 	memcpy(m.keypair.ecc_pub, pub_out, ecc_pub_size);
 	memcpy(m.keypair.ecc_priv, priv, ecc_priv_size);
 	crypto::id_from_pub(pub_out, m.ID);
+	//add to array:
 	local_machines.acquire()->push_back(m);
 	local_machines.release();
+	//save to database:
+	recall::acquire_lock();
+	//save pub to table:
+	int table_len;
+	unsigned char* table = recall::read("machines_table", &table_len);
+	table = (unsigned char*)realloc(table, table_len+ecc_pub_size);
+	memcpy(table+table_len, pub_out, ecc_pub_size);
+	recall::write("machines_table", table, table_len+ecc_pub_size);
+	//save machine
+	bytes_to_hex_array(pub_hex, pub_out, ecc_pub_size);
+	recall::write(pub_hex, (unsigned char*)&m, sizeof(machine));
+	delete table;
+	recall::release_lock();
 	//TODO: ADD TO DB
 }

@@ -12,7 +12,7 @@
 
 #include "../include/platform.h"
 
-thread::locker<std::queue<task*>> comm_queue;
+thread::locker<std::queue<host_task*>> comm_queue;
 
 struct host{
 	int fd;
@@ -25,8 +25,8 @@ struct host{
 
 std::vector<host> hosts;
 
-bool send_comm(task* t){ //THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK WORKER THREAD
-	//std::cerr<<"calling "<<t->t.function_name<<" on "<<t->dest_addr<<"\n";
+bool send_comm(host_task* t){ //THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK WORKER THREAD
+	std::cerr<<"calling "<<t->t.function_name<<" on "<<t->dest_addr<<"\n";
 	//split hostname/machine identifier
 	char hostname[max_address_len];
 	memcpy(hostname, t->dest_addr, max_address_len);
@@ -51,7 +51,7 @@ bool send_comm(task* t){ //THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK WORKER
 	int host_index = -1;
 	for(int i = 0; i < hosts.size(); i++)
 		if((fresh_con.addr.sin_addr.s_addr == hosts[i].addr.sin_addr.s_addr) && (fresh_con.addr.sin_port == hosts[i].addr.sin_port)){
-			std::cerr<<"found!\n";
+			//std::cerr<<"found!\n";
 			host_index = i;
 			break;
 		}
@@ -61,17 +61,38 @@ bool send_comm(task* t){ //THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK WORKER
 		fresh_con.fd = connection_no;
 		hosts.push_back(fresh_con);
 		host_index = hosts.size() - 1;
-		std::cerr<<"established!\n";
+		//std::cerr<<"established!\n";
 	}
 	//reset timeout:
 	hosts[host_index].timeout = time(NULL) + con_timeout;
+	//derrive shared secret:
 	hex_to_bytes_array(receiver_pub, identifier, ecc_pub_size);
 	unsigned char sender_priv[ecc_priv_size];
 	fail_false(compute::get_priv(t->origin_pub, sender_priv));
 	unsigned char secret[shared_secret_size];
 	crypto::derrive_shared(sender_priv, receiver_pub, secret);
-	bytes_to_hex_array(secret_hex, secret, shared_secret_size);
-	std::cerr<<"secret: "<<secret_hex<<"\n";
+	//construct and send header:
+	packet_header header;
+	memcpy(header.origin_pub, t->origin_pub, ecc_pub_size);
+	memcpy(header.dest_pub, receiver_pub, ecc_pub_size);
+	header.contents_length = sizeof(wire_task) + t->param_length;
+	fail_false(write(hosts[host_index].fd, (void*)&header, sizeof(packet_header)) >= 0);
+	std::cerr<<"wrote header\n";
+	//construct body:
+	int encrypted_buffer_size = crypto::calc_encrypted_size(header.contents_length);
+	//rounded to the nearest block, but without IV
+	int unencrypted_buffer_size = encrypted_buffer_size - aes_block_size;
+	unsigned char* unencrypted = new unsigned char[unencrypted_buffer_size];
+	memset(unencrypted, 0, unencrypted_buffer_size);
+	wire_task* wire = (wire_task*)unencrypted;
+	fail_false(crypto::id_from_pub(header.origin_pub, wire->target_ID));
+	memcpy(&wire->t, &t->t, sizeof(common_task));
+	//encrypt and send body:
+	unsigned char* encrypted = new unsigned char[encrypted_buffer_size];
+	fail_false(crypto::encrypt(secret, unencrypted, unencrypted_buffer_size, encrypted));
+	fail_false(write(hosts[host_index].fd, encrypted, encrypted_buffer_size) >= 0);
+	delete encrypted;
+	delete unencrypted;//TODO: fix failure memory leak (maybe create a goto)
 	delete t;
 	return true;
 }
@@ -96,7 +117,7 @@ bool run_talk_worker(int port){
 	//bind inbound endpoint:
 	fail_false(bind(listener_no, (sockaddr*)&addr, sizeof(sockaddr_in)) == 0);
 	listen(listener_no,5);
-	std::cerr<<"listening\n";
+	//std::cerr<<"listening\n";
 	while(1){
 		//transmit comm queue
 		while(1){
@@ -106,7 +127,7 @@ bool run_talk_worker(int port){
 				comm_queue.release();
 				break;
 			}
-			task* next = c->front();
+			host_task* next = c->front();
 			c->pop();
 			comm_queue.release();
 			if(!send_comm(next)){
@@ -153,7 +174,7 @@ bool run_talk_worker(int port){
 					}
 					//if not, set packet is waiting and bump the timeout
 					hosts[i].is_packet_waiting = true;
-					std::cerr<<"extending (count)\n";
+					std::cerr<<"extending (header)\n";
 					hosts[i].timeout = time(NULL) + con_timeout;
 				}
 				//if a packet is waiting, and a body is in the pipe
@@ -180,7 +201,7 @@ bool run_talk_worker(int port){
 	}
 }
 
-void talk::add_to_comm_queue(task* t){
+void talk::add_to_comm_queue(host_task* t){
 	comm_queue.acquire()->push(t);
 	comm_queue.release();
 }

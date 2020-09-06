@@ -9,6 +9,8 @@ namespace recall{
 	bool write(const char* key, const unsigned char* data, int datalen);//write key/value pair into db
 	unsigned char* read(const char* key, int* datalen);//read kvp from db
 	char* next(const char* prev_key);//find next key after given key
+	void acquire_lock();//recall requires more fine-grained locking control than other things
+	void release_lock();
 }
 
 namespace crypto{

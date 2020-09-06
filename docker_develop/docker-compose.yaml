@@ -3,16 +3,16 @@ services:
   nihilo_host:
     build: ./vanilla
     environment:
-       cmd: /home/bin/nih
+       cmd: /nih/bin/nih /nih/docker_develop/databases/hostdb
     volumes:
-      - ../:/home/
+      - ../:/nih/
 
   pinger:
     build: ./vanilla
     environment:
-      cmd: /home/bin/nih nihilo_host~2480D44A07F768AB3ED29230C93E50DC99F6D8B2FC16C4C340D6BD028A0C32C1
+      cmd: /nih/bin/nih /nih/docker_develop/databases/pingerdb 64453268BD298278F295067C5881C325BBE315D2DCF20894E13822509AF95708 nihilo_host~540A8E82400D106FC15B4290437CEBC2F46665955D2A598BB97BA0869E6D8893
     volumes:
-      - ../:/home/
+      - ../:/nih/
     depends_on:
       - nihilo_host
     

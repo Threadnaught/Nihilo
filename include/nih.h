@@ -12,7 +12,7 @@
 #define shared_secret_size 16
 #define aes_block_size 16
 #define tcp_port 7328
-#define con_timeout 5
+#define con_timeout 15
 #define max_packet_size 512
 #define max_func_len 20
 #define max_address_len 100
@@ -35,18 +35,23 @@ struct packet_header{
 
 //both types of task are followed by the param (of variable length)
 
-struct wire_task{ //task on the wire
+struct common_task{ //task on the wire
 	char function_name[max_func_len];
 	char on_success[max_func_len];
 	char on_failure[max_func_len];
 };
-struct task{//task (full)
+struct host_task{//task (full)
 	unsigned char origin_pub[ecc_pub_size];
 	char dest_addr[max_address_len];
 	int retry_count = 3;
 	char* ret = nullptr;
 	short param_length; //0 for no param
-	wire_task t;
+	common_task t;
+};
+//THIS NEEDS TO STAY IN THIS EXACT ORDER OR send_comm WILL ALL GET FUCKED
+struct wire_task{
+	unsigned char target_ID[ID_size];
+	common_task t;
 };
 
 namespace crypto{
@@ -71,7 +76,7 @@ namespace thread{
 }
 
 namespace compute{
-	void init(int thread_count);
+	bool init(int thread_count);
 	bool copy_to_queue(const char* dest_addr, const unsigned char* origin_pub, const char* function_name, const char* on_success, const char* on_failure, const unsigned char* param, int paramlen);
 	bool get_pub(unsigned char* id, unsigned char* pub_out);
 	bool get_priv(unsigned char* pub, unsigned char* priv_out);
@@ -80,7 +85,7 @@ namespace compute{
 
 namespace talk{
 	void init(int port);
-	void add_to_comm_queue(task* t);
+	void add_to_comm_queue(host_task* t);
 }
 
 void bytes_to_hex(unsigned char* bytes, int bytes_len, char* hexbuffer);
