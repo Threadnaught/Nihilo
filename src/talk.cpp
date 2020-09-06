@@ -26,7 +26,7 @@ struct host{
 std::vector<host> hosts;
 
 bool send_comm(host_task* t){ //THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK WORKER THREAD
-	std::cerr<<"calling "<<t->t.function_name<<" on "<<t->dest_addr<<"\n";
+	//std::cerr<<"calling "<<t->t.function_name<<" on "<<t->dest_addr<<"\n";
 	//split hostname/machine identifier
 	char hostname[max_address_len];
 	memcpy(hostname, t->dest_addr, max_address_len);
@@ -70,7 +70,7 @@ bool send_comm(host_task* t){ //THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK W
 	unsigned char sender_priv[ecc_priv_size];
 	fail_false(compute::get_priv(t->origin_pub, sender_priv));
 	unsigned char secret[shared_secret_size];
-	crypto::derrive_shared(sender_priv, receiver_pub, secret);
+	fail_false(crypto::derrive_shared(sender_priv, receiver_pub, secret));
 	//construct and send header:
 	packet_header header;
 	memcpy(header.origin_pub, t->origin_pub, ecc_pub_size);
@@ -83,14 +83,19 @@ bool send_comm(host_task* t){ //THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK W
 	//rounded to the nearest block, but without IV
 	int unencrypted_buffer_size = encrypted_buffer_size - aes_block_size;
 	unsigned char* unencrypted = new unsigned char[unencrypted_buffer_size];
+	//don't want to expose memory to peer
 	memset(unencrypted, 0, unencrypted_buffer_size);
 	wire_task* wire = (wire_task*)unencrypted;
-	fail_false(crypto::id_from_pub(header.origin_pub, wire->target_ID));
+	//copy over target id/task info/param
+	fail_false(crypto::id_from_pub(header.dest_pub, wire->target_ID));
 	memcpy(&wire->t, &t->t, sizeof(common_task));
+	if(t->param_length > 0)
+		memcpy(unencrypted+sizeof(wire_task), ((char*)t)+sizeof(host_task), t->param_length);
 	//encrypt and send body:
 	unsigned char* encrypted = new unsigned char[encrypted_buffer_size];
 	fail_false(crypto::encrypt(secret, unencrypted, unencrypted_buffer_size, encrypted));
 	fail_false(write(hosts[host_index].fd, encrypted, encrypted_buffer_size) >= 0);
+	//memory cleanup:
 	delete encrypted;
 	delete unencrypted;//TODO: fix failure memory leak (maybe create a goto)
 	delete t;
@@ -101,6 +106,33 @@ void drop(int con_no){
 	shutdown(hosts[con_no].fd, SHUT_RDWR);
 	close(hosts[con_no].fd);
 	hosts.erase(hosts.begin() + con_no);
+}
+
+bool receive_body(int hostid, unsigned char* body){
+	std::cerr<<"receiving body\n";
+	unsigned char dest_priv[ecc_priv_size];
+	fail_false(compute::get_priv(hosts[hostid].waiting_packet.dest_pub, dest_priv));
+	unsigned char secret[shared_secret_size];
+	crypto::derrive_shared(dest_priv, hosts[hostid].waiting_packet.origin_pub, secret);
+	int encrypted_buffer_size = crypto::calc_encrypted_size(hosts[hostid].waiting_packet.contents_length);
+	//rounded to the nearest block, but without IV
+	int unencrypted_buffer_size = encrypted_buffer_size - aes_block_size;
+	unsigned char* unencrypted = new unsigned char[unencrypted_buffer_size];
+	fail_false(crypto::decrypt(secret, body, unencrypted_buffer_size, unencrypted));
+	wire_task* t = (wire_task*)unencrypted;
+	//verify ID decodes correctly (so entire packet decodes)
+	unsigned char target_ID[ID_size];
+	crypto::id_from_pub(hosts[hostid].waiting_packet.dest_pub, target_ID);
+	//fail_false(memcmp(target_ID, t->target_ID, ID_size)==0);
+	bytes_to_hex_array(received_hex, t->target_ID, ID_size);
+	bytes_to_hex_array(target_hex, target_ID, ID_size);
+	bytes_to_hex_array(dest_addr, hosts[hostid].waiting_packet.dest_pub, ecc_pub_size);
+	int paramlen = hosts[hostid].waiting_packet.contents_length-sizeof(wire_task);
+	unsigned char* param = paramlen==0?nullptr:unencrypted+sizeof(wire_task);
+	compute::copy_to_queue(dest_addr, hosts[hostid].waiting_packet.origin_pub,
+	 	t->t.function_name, t->t.on_success, t->t.on_failure,param, paramlen);
+	delete unencrypted;//TODO: fix failure memory leak (maybe create a goto)
+	return true;
 }
 
 bool run_talk_worker(int port){
@@ -179,10 +211,14 @@ bool run_talk_worker(int port){
 				}
 				//if a packet is waiting, and a body is in the pipe
 				if(hosts[i].is_packet_waiting && count >= hosts[i].waiting_packet.contents_length){
-					std::cerr<<"receiving body\n";
+					//std::cerr<<"receiving body\n";
 					//read it off the pipe
 					char* inbuf = new char[crypto::calc_encrypted_size(hosts[i].waiting_packet.contents_length)];
 					read(hosts[i].fd, inbuf, crypto::calc_encrypted_size(hosts[i].waiting_packet.contents_length));
+					if(!receive_body(i, (unsigned char*)inbuf)){
+						std::cerr<<"receive failed\n";
+						//TODO: generic failure?
+					}
 					delete inbuf;//TODO: do something with it
 					hosts[i].is_packet_waiting = false;
 					std::cerr<<"extending (body)\n";

@@ -20,13 +20,13 @@ bool compute::init(int thread_count){
 		new_machine(new_pub);
 		table = recall::read("machines_table", &table_len);
 	}
-	std::cerr<<"table size: "<<table_len<<"\n";
+	//std::cerr<<"table size: "<<table_len<<"\n";
 	fail_false(table_len % ecc_pub_size == 0);
 	auto locals = local_machines.acquire();
 	for(int i = 0; i < table_len; i += ecc_pub_size){
 		int m_len;
 		bytes_to_hex_array(pub_hex, table + i, ecc_pub_size);
-		std::cerr<<"loading machine "<<pub_hex<<"\n";
+		//std::cerr<<"loading machine "<<pub_hex<<"\n";
 		machine* m = (machine*)recall::read(pub_hex, &m_len);
 		fail_false(m_len == sizeof(machine));
 		locals->push_back(*m);
@@ -48,6 +48,7 @@ void run_compute_worker(){
 
 bool compute::copy_to_queue(const char* dest_addr, const unsigned char* origin_pub, const char* function_name, const char* on_success, const char* on_failure, const unsigned char* param, int paramlen){
 	//ensure compliance:
+	std::cerr<<"Sending "<<function_name<<" to "<<dest_addr<<"\n";
 	fail_false(!(strlen(dest_addr) > max_address_len));
 	fail_false(!(strlen(function_name) > max_func_len));
 	if(on_success != nullptr) fail_false(!(strlen(on_success) > max_func_len));
