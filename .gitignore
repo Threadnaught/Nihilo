@@ -1,3 +1,5 @@
 *.o
 bin/*
 .vscode
+docker_develop/databases/
+*.wasm
