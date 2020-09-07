@@ -76,11 +76,16 @@ namespace thread{
 }
 
 namespace compute{
-	bool init(int thread_count);
+	bool init();
+	void launch_threads(int thread_count);
 	bool copy_to_queue(const char* dest_addr, const unsigned char* origin_pub, const char* function_name, const char* on_success, const char* on_failure, const unsigned char* param, int paramlen);
 	bool get_pub(unsigned char* id, unsigned char* pub_out);
 	bool get_priv(unsigned char* pub, unsigned char* priv_out);
 	void new_machine(unsigned char* pub_out);
+	bool save_wasm(unsigned char* pub, unsigned char* wasm, int length);
+	unsigned char* get_wasm(unsigned char* pub, int* length);
+	//TEMP/DEBUG:
+	void get_default_machine(unsigned char* pub_out);
 }
 
 namespace talk{

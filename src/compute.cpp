@@ -7,7 +7,7 @@
 thread::locker<std::queue<host_task*>> task_queue;
 thread::locker<std::vector<machine>> local_machines;
 
-bool compute::init(int thread_count){
+bool compute::init(){
 	//load machines into local_machines:
 	int table_len;
 	unsigned char* table = recall::read("machines_table", &table_len);
@@ -36,7 +36,9 @@ bool compute::init(int thread_count){
 	return true;
 }
 
-
+void compute::launch_threads(int thread_count){
+	
+}
 
 void run_compute_worker(){
 	while(1){
@@ -116,4 +118,28 @@ void compute::new_machine(unsigned char* pub_out){
 	delete table;
 	recall::release_lock();
 	//TODO: ADD TO DB
+}
+
+bool compute::save_wasm(unsigned char* pub, unsigned char* wasm, int length){
+	recall::acquire_lock();
+	char path[100];
+	bytes_to_hex(pub, ecc_pub_size, path);
+	strcpy(path+strlen(path), ".wasm");
+	fail_false(recall::write(path, wasm, length));
+	recall::release_lock();
+	return true;
+}
+unsigned char* compute::get_wasm(unsigned char* pub, int* length){
+	recall::acquire_lock();
+	char path[100];
+	bytes_to_hex(pub, ecc_pub_size, path);
+	strcpy(path+strlen(path), ".wasm");
+	unsigned char* wasm_data = recall::read(path, length);
+	recall::release_lock();
+	return wasm_data;
+}
+
+void compute::get_default_machine(unsigned char* pub_out){
+	memcpy(pub_out, local_machines.acquire()->at(0).keypair.ecc_pub, ecc_pub_size);
+	local_machines.release();
 }
