@@ -25,6 +25,7 @@ namespace crypto{
 	bool id_from_pub(const unsigned char* pub, unsigned char* id);
 }
 
-namespace compute{
-
+namespace runtime{
+	bool init();
+	void exec_task(host_task* t);
 }

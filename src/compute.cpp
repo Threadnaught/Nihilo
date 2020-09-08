@@ -1,6 +1,8 @@
 #include <queue>
 #include <vector>
 #include <cstring>
+#include <pthread.h>
+#include <unistd.h>
 
 #include "../include/platform.h"
 
@@ -35,17 +37,28 @@ bool compute::init(){
 	delete table;
 	return true;
 }
-
-void compute::launch_threads(int thread_count){
-	
+//loops checking for a task at the front of the queue, and exec
+void* run_compute_worker(void* args){
+	while(1){
+		std::cerr<<"loop\n";
+		auto acquired_queue = task_queue.acquire();
+		host_task* t = nullptr;
+		if(acquired_queue->size() > 0){
+			t = acquired_queue->front();
+			acquired_queue->pop();
+		}
+		task_queue.release();
+		if(t!=nullptr)
+			runtime::exec_task(t);
+	}
 }
 
-void run_compute_worker(){
-	while(1){
-		//remove task from queue
-		//load wasm
-		//execute wasm (using platform exec)
+bool compute::launch_threads(int thread_count){
+	for(int i = 0; i < thread_count; i++){
+		pthread_t thread;
+		fail_false(pthread_create(&thread, nullptr, run_compute_worker, nullptr)==0);
 	}
+	return true;
 }
 
 bool compute::copy_to_queue(const char* dest_addr, const unsigned char* origin_pub, const char* function_name, const char* on_success, const char* on_failure, const unsigned char* param, int paramlen){
@@ -115,9 +128,9 @@ void compute::new_machine(unsigned char* pub_out){
 	//save machine
 	bytes_to_hex_array(pub_hex, pub_out, ecc_pub_size);
 	recall::write(pub_hex, (unsigned char*)&m, sizeof(machine));
+	std::cerr<<"created machine:"<<pub_hex<<"\n";
 	delete table;
 	recall::release_lock();
-	//TODO: ADD TO DB
 }
 
 bool compute::save_wasm(unsigned char* pub, unsigned char* wasm, int length){

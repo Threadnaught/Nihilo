@@ -33,8 +33,8 @@ int main(int argc, char** argv){
 				return 1;
 		}
 	}
-	recall::init(db_path);
-	compute::init();
+	fail_check(recall::init(db_path), -1);
+	fail_check(compute::init(), -1);
 	if(strlen(wasm_path) > 0){
 		FILE* wasm_file = fopen(wasm_path, "rb");
 		fseek(wasm_file, 0, SEEK_END);
@@ -48,12 +48,13 @@ int main(int argc, char** argv){
 		compute::save_wasm(default_mach, wasm_data, length);
 		delete wasm_data;
 	}
-	compute::launch_threads(1);
 	if(strlen(ping_addr) > 0 && strlen(ping_from) > 0){
 		std::cerr<<"pinging "<<ping_addr<<" from "<<ping_from<<"\n";
 		hex_to_bytes_array(from, ping_from, ecc_pub_size);
 		compute::copy_to_queue(ping_addr, from, "test", "test", "test", nullptr, 0);
 		//compute::copy_to_queue(ping_addr, from, "test", nullptr, nullptr, nullptr, 0);
 	}
+	fail_check(runtime::init(), -1);
+	fail_check(compute::launch_threads(1), -1);
 	talk::init(tcp_port);
 }
