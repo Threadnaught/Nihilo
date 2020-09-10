@@ -40,7 +40,7 @@ bool compute::init(){
 //loops checking for a task at the front of the queue, and exec
 void* run_compute_worker(void* args){
 	while(1){
-		std::cerr<<"loop\n";
+		//std::cerr<<"loop\n";
 		auto acquired_queue = task_queue.acquire();
 		host_task* t = nullptr;
 		if(acquired_queue->size() > 0){
@@ -50,6 +50,8 @@ void* run_compute_worker(void* args){
 		task_queue.release();
 		if(t!=nullptr)
 			runtime::exec_task(t);
+		else
+			usleep(1000);
 	}
 }
 

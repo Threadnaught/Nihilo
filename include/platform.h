@@ -27,5 +27,5 @@ namespace crypto{
 
 namespace runtime{
 	bool init();
-	void exec_task(host_task* t);
+	bool exec_task(host_task* t);
 }
