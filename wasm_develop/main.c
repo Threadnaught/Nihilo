@@ -1,11 +1,11 @@
 #include "../include/api.h"
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
 
-int32_t calculate(int32_t n){
-	printf("test\n");
-	return n+1;
+void calculate(const unsigned char* test){
+	printf("hello!\n");
+	printf("%s\n", (const char*)test);
 }

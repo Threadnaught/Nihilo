@@ -28,7 +28,7 @@ bool compute::init(){
 	for(int i = 0; i < table_len; i += ecc_pub_size){
 		int m_len;
 		bytes_to_hex_array(pub_hex, table + i, ecc_pub_size);
-		//std::cerr<<"loading machine "<<pub_hex<<"\n";
+		std::cerr<<"loading machine "<<pub_hex<<"\n";
 		machine* m = (machine*)recall::read(pub_hex, &m_len);
 		fail_false(m_len == sizeof(machine));
 		locals->push_back(*m);
