@@ -36,6 +36,7 @@ There is potential for malicious WASM to query data from process memory through 
 
 ### POTENTIAL FIX
 
-Create a function for copying sandbox memory to process memory which checks the passed sandbox memory pointer is entireley within the correct wasm_module_inst_t.
+- Create a function for copying sandbox memory to process memory which checks the passed sandbox memory pointer is entirely within the correct wasm_module_inst_t.
+- Create a function for copying process memory to sandbox memory which includes the allocation step, preventing the buffer issues.
 
 **NOT YET IMPLEMENTED**
