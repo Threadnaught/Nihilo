@@ -3,7 +3,7 @@ services:
   nihilo_host:
     build: ./vanilla
     environment:
-       cmd: /nih/bin/nih -d /nih/docker_develop/databases/hostdb
+       cmd: /nih/bin/nih -d /nih/docker_develop/databases/hostdb -w /nih/wasm_develop/test.wasm
     volumes:
       - ../:/nih/
 

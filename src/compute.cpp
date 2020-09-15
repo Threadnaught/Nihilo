@@ -78,7 +78,8 @@ bool compute::copy_to_queue(const char* dest_addr, const unsigned char* origin_p
 	strncpy(t->t.function_name, function_name, max_func_len);
 	if(on_success != nullptr) strncpy(t->t.on_success, function_name, max_func_len);
 	if(on_failure != nullptr) strncpy(t->t.on_failure, function_name, max_func_len);
-	if(paramlen > 1) memcpy((t+1), param, paramlen);
+	t->param_length = paramlen;
+	if(paramlen > 0) memcpy((t+1), param, paramlen);
 	memcpy(t->origin_pub, origin_pub, ecc_pub_size);
 	//is target machine on this host?
 	if(strstr(dest_addr, "~") != nullptr || strstr(dest_addr, "@") != nullptr)//if address contains

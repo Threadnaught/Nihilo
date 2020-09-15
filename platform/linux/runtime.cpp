@@ -38,27 +38,19 @@ bool runtime::exec_task(host_task* t){
 	if(error_buf[0] != 0)
 		std::cerr<<"load err:"<<error_buf<<"\n";
 	error_buf[0] = 0;
-	std::cerr<<"doing work!\n";
 	//lookup the function:
-	wasm_function_inst_t func = wasm_runtime_lookup_function(inst, "calculate", NULL);
+	wasm_function_inst_t func = wasm_runtime_lookup_function(inst, t->t.function_name, NULL);
 	if(func == nullptr){
 		std::cerr<<"fuck\n";
 		return false;
 	}
 	wasm_exec_env_t e_env = wasm_runtime_create_exec_env(inst, 8092);
-	const char* arg = "aaaaaa";
-	uint32_t box_arg;
-	fail_false(copy_process_to_sandbox(&box_arg, inst, (const unsigned char*)arg, 100));
-	
-	unsigned int argv[2];
-	argv[0] = box_arg;
-	
-	if(!wasm_runtime_call_wasm(e_env, func, 1, argv)){
+	unsigned int argv[1];
+	if(!wasm_runtime_call_wasm(e_env, func, 0, argv)){
 		std::cerr<<"fuckfuckfuck\n";
 		return false;
 	}
-	wasm_runtime_module_free(inst, box_arg);
-	
+	std::cerr<<"done\n";//flush prints to docker
 	wasm_runtime_destroy_exec_env(e_env);
 	wasm_runtime_deinstantiate(inst);
 	wasm_runtime_unload(mod);

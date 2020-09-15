@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-void calculate(const unsigned char* test){
-	printf("hello!\n");
-	printf("%s\n", (const char*)test);
+void calculate(){
+	printf("hello from wasm!\n");
 }
