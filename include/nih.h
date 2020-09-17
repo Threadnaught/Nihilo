@@ -44,8 +44,10 @@ struct host_task{//task (full)
 	unsigned char origin_pub[ecc_pub_size];
 	char dest_addr[max_address_len];
 	int retry_count = 3;
-	char* ret = nullptr;
+	int ret_len = -1;
+	unsigned char* ret = nullptr;
 	short param_length; //0 for no param
+	void* env_inst;
 	common_task t;
 };
 //THIS NEEDS TO STAY IN THIS EXACT ORDER OR send_comm WILL ALL GET FUCKED
