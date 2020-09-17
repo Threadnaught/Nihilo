@@ -15,4 +15,5 @@ services:
       - ../:/nih/
     depends_on:
       - nihilo_host
-    
+
+#gdb -q -ex run --args 

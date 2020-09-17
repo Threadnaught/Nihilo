@@ -28,18 +28,27 @@ std::vector<host> hosts;
 bool send_comm(host_task* t){ //THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK WORKER THREAD
 	//std::cerr<<"calling "<<t->t.function_name<<" on "<<t->dest_addr<<"\n";
 	//split hostname/machine identifier
-	char hostname[max_address_len];
-	memcpy(hostname, t->dest_addr, max_address_len);
-	char* identifier = strstr(hostname, "~");
-	identifier[0] = '\0';
-	identifier++;
+	char receiver_hostname[max_address_len];
+	memcpy(receiver_hostname, t->dest_addr, max_address_len);
+	char* receive_identifier = strstr(receiver_hostname, "~");
+	receive_identifier[0] = '\0';
+	receive_identifier++;
+	char sender_hostname[max_address_len];
+	memcpy(sender_hostname, t->origin_addr, max_address_len);
+	char* send_identifier = strstr(sender_hostname, "~");
+	if(send_identifier == nullptr)
+		send_identifier = sender_hostname;
+	else {
+		send_identifier[0] = '\0';
+		send_identifier++;
+	}
 	//std::cerr<<"hostname: "<<hostname<<" identifier: "<<identifier<<"\n";
 	//TODO: PORT, ALIASES, CHAINING ETC.
 	//open socket:
 	int connection_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
 	fail_false(connection_no >= 0);
 	//DNS/IP lookup:
-	hostent* target_ent = gethostbyname(hostname);
+	hostent* target_ent = gethostbyname(receiver_hostname);
 	fail_false(target_ent != nullptr);
 	//fresh_con ONLY USEFUL FOR A FRESH CONNECTION, USE host_index FOR EITHER A FOUND OR FRESH CONNECTION
 	host fresh_con;
@@ -66,18 +75,19 @@ bool send_comm(host_task* t){ //THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK W
 	//reset timeout:
 	hosts[host_index].timeout = time(NULL) + con_timeout;
 	//derrive shared secret:
-	hex_to_bytes_array(receiver_pub, identifier, ecc_pub_size);
+	hex_to_bytes_array(receiver_pub, receive_identifier, ecc_pub_size);
+	hex_to_bytes_array(origin_pub, send_identifier, ecc_pub_size)
 	unsigned char sender_priv[ecc_priv_size];
-	fail_false(compute::get_priv(t->origin_pub, sender_priv));
+	fail_false(compute::get_priv(origin_pub, sender_priv));
 	unsigned char secret[shared_secret_size];
 	fail_false(crypto::derrive_shared(sender_priv, receiver_pub, secret));
 	//construct and send header:
 	packet_header header;
-	memcpy(header.origin_pub, t->origin_pub, ecc_pub_size);
+	memcpy(header.origin_pub, origin_pub, ecc_pub_size);
 	memcpy(header.dest_pub, receiver_pub, ecc_pub_size);
 	header.contents_length = sizeof(wire_task) + t->param_length;
 	fail_false(write(hosts[host_index].fd, (void*)&header, sizeof(packet_header)) >= 0);
-	std::cerr<<"wrote header\n";
+	//std::cerr<<"wrote header\n";
 	//construct body:
 	int encrypted_buffer_size = crypto::calc_encrypted_size(header.contents_length);
 	//rounded to the nearest block, but without IV
@@ -109,7 +119,7 @@ void drop(int con_no){
 }
 
 bool receive_body(int hostid, unsigned char* body){
-	std::cerr<<"receiving body\n";
+	//std::cerr<<"receiving body\n";
 	unsigned char dest_priv[ecc_priv_size];
 	fail_false(compute::get_priv(hosts[hostid].waiting_packet.dest_pub, dest_priv));
 	unsigned char secret[shared_secret_size];
@@ -129,8 +139,12 @@ bool receive_body(int hostid, unsigned char* body){
 	bytes_to_hex_array(dest_addr, hosts[hostid].waiting_packet.dest_pub, ecc_pub_size);
 	int paramlen = hosts[hostid].waiting_packet.contents_length-sizeof(wire_task);
 	unsigned char* param = paramlen==0?nullptr:unencrypted+sizeof(wire_task);
-	compute::copy_to_queue(dest_addr, hosts[hostid].waiting_packet.origin_pub,
-	 	t->t.function_name, t->t.on_success, t->t.on_failure,param, paramlen);
+	char origin_addr[max_address_len];
+	inet_ntop(AF_INET, &hosts[hostid].addr, origin_addr, 15);
+	origin_addr[strlen(origin_addr)+1] = '\0';
+	origin_addr[strlen(origin_addr)] = '~';
+	bytes_to_hex(hosts[hostid].waiting_packet.origin_pub, ecc_pub_size, origin_addr + strlen(origin_addr));
+	compute::copy_to_queue(dest_addr, origin_addr, t->t.function_name, t->t.on_success, t->t.on_failure,param, paramlen);
 	delete unencrypted;//TODO: fix failure memory leak (maybe create a goto)
 	return true;
 }
@@ -182,7 +196,7 @@ bool run_talk_worker(int port){
 			int connection_no = accept(listener_no, (sockaddr*) &con.addr, &other_len);
 			//if the connection is valid, add it to the list and reset its timeout
 			if(connection_no >= 0){
-				std::cerr<<"adding new connection\n";
+				//std::cerr<<"adding new connection\n";
 				con.fd = connection_no;
 				con.timeout = time(NULL) + con_timeout;
 				hosts.push_back(con);
@@ -206,7 +220,7 @@ bool run_talk_worker(int port){
 					}
 					//if not, set packet is waiting and bump the timeout
 					hosts[i].is_packet_waiting = true;
-					std::cerr<<"extending (header)\n";
+					//std::cerr<<"extending (header)\n";
 					hosts[i].timeout = time(NULL) + con_timeout;
 				}
 				//if a packet is waiting, and a body is in the pipe
@@ -221,7 +235,7 @@ bool run_talk_worker(int port){
 					}
 					delete inbuf;//TODO: do something with it
 					hosts[i].is_packet_waiting = false;
-					std::cerr<<"extending (body)\n";
+					//std::cerr<<"extending (body)\n";
 					hosts[i].timeout = time(NULL) + con_timeout;
 				}
 			}
@@ -233,7 +247,7 @@ bool run_talk_worker(int port){
 			}
 		}
 	//std::cerr<<hosts.size()<<"\n";
-	usleep(20000);
+	usleep(10000);
 	}
 }
 

@@ -9,6 +9,13 @@
 thread::locker<std::queue<host_task*>> task_queue;
 thread::locker<std::vector<machine>> local_machines;
 
+void delete_task(host_task* t){
+	if(t->ret_len > 0){
+		delete t->ret;
+	}
+	delete t;
+}
+
 bool compute::init(){
 	//load machines into local_machines:
 	int table_len;
@@ -49,7 +56,28 @@ void* run_compute_worker(void* args){
 		}
 		task_queue.release();
 		if(t!=nullptr)
-			runtime::exec_task(t);
+			if(runtime::exec_task(t)){
+				std::cerr<<"successful\n";
+				//if there is a on_success event, copy to the queue
+				if(strlen(t->t.on_success) > 0){
+					//if there is a return value, set it as the param, and if not call without
+					if(t->ret_len > 0){
+						compute::copy_to_queue(t->origin_addr, t->dest_addr, t->t.on_success, nullptr, nullptr, nullptr, 0);
+					} else {
+						compute::copy_to_queue(t->origin_addr, t->dest_addr, t->t.on_success, nullptr, nullptr, t->ret, t->ret_len);
+					}
+				}
+
+				delete_task(t);
+			} else {
+				if(++t->retry_count >= max_retries){
+					//TODO: schedule on_failure
+					delete_task(t);
+				} else {
+					task_queue.acquire()->push(t);
+					task_queue.release();
+				}
+			}
 		else
 			usleep(1000);
 	}
@@ -63,7 +91,7 @@ bool compute::launch_threads(int thread_count){
 	return true;
 }
 
-bool compute::copy_to_queue(const char* dest_addr, const unsigned char* origin_pub, const char* function_name, const char* on_success, const char* on_failure, const unsigned char* param, int paramlen){
+bool compute::copy_to_queue(const char* dest_addr, const char* origin_addr, const char* function_name, const char* on_success, const char* on_failure, const unsigned char* param, int paramlen){
 	//ensure compliance:
 	std::cerr<<"Sending "<<function_name<<" to "<<dest_addr<<"\n";
 	fail_false(!(strlen(dest_addr) > max_address_len));
@@ -75,12 +103,12 @@ bool compute::copy_to_queue(const char* dest_addr, const unsigned char* origin_p
 	host_task* t = (host_task*)malloc(sizeof(host_task) + paramlen);
 	memset(t, 0, sizeof(host_task));//don't want to expose any memory now, do we?
 	strncpy(t->dest_addr, dest_addr, max_address_len);
+	strncpy(t->origin_addr, origin_addr, max_address_len);
 	strncpy(t->t.function_name, function_name, max_func_len);
-	if(on_success != nullptr) strncpy(t->t.on_success, function_name, max_func_len);
-	if(on_failure != nullptr) strncpy(t->t.on_failure, function_name, max_func_len);
+	if(on_success != nullptr) strncpy(t->t.on_success, on_success, max_func_len);
+	if(on_failure != nullptr) strncpy(t->t.on_failure, on_failure, max_func_len);
 	t->param_length = paramlen;
 	if(paramlen > 0) memcpy((t+1), param, paramlen);
-	memcpy(t->origin_pub, origin_pub, ecc_pub_size);
 	//is target machine on this host?
 	if(strstr(dest_addr, "~") != nullptr || strstr(dest_addr, "@") != nullptr)//if address contains
 	{

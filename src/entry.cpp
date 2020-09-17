@@ -50,8 +50,8 @@ int main(int argc, char** argv){
 	}
 	if(strlen(ping_addr) > 0 && strlen(ping_from) > 0){
 		std::cerr<<"pinging "<<ping_addr<<" from "<<ping_from<<"\n";
-		hex_to_bytes_array(from, ping_from, ecc_pub_size);
-		compute::copy_to_queue(ping_addr, from, "calculate", nullptr, nullptr, nullptr, 0);
+		//hex_to_bytes_array(from, ping_from, ecc_pub_size);
+		compute::copy_to_queue(ping_addr, ping_from, "calculate", "calculate", nullptr, nullptr, 0);
 	}
 	fail_check(runtime::init(), -1);
 	fail_check(compute::launch_threads(1), -1);

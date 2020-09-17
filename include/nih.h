@@ -16,6 +16,7 @@
 #define max_packet_size 512
 #define max_func_len 20
 #define max_address_len 100
+#define max_retries 3
 
 struct machine_keypair{
 	unsigned char ecc_pub[ecc_pub_size];
@@ -41,9 +42,10 @@ struct common_task{ //task on the wire
 	char on_failure[max_func_len];
 };
 struct host_task{//task (full)
-	unsigned char origin_pub[ecc_pub_size];
+	//unsigned char origin_pub[ecc_pub_size];
+	char origin_addr[max_address_len];
 	char dest_addr[max_address_len];
-	int retry_count = 3;
+	int retry_count = 0;
 	int ret_len = -1;
 	unsigned char* ret = nullptr;
 	short param_length; //0 for no param
@@ -80,7 +82,7 @@ namespace thread{
 namespace compute{
 	bool init();
 	bool launch_threads(int thread_count);
-	bool copy_to_queue(const char* dest_addr, const unsigned char* origin_pub, const char* function_name, const char* on_success, const char* on_failure, const unsigned char* param, int paramlen);
+	bool copy_to_queue(const char* dest_addr, const char* origin_addr, const char* function_name, const char* on_success, const char* on_failure, const unsigned char* param, int paramlen);
 	bool get_pub(unsigned char* id, unsigned char* pub_out);
 	bool get_priv(unsigned char* pub, unsigned char* priv_out);
 	void new_machine(unsigned char* pub_out);
