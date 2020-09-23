@@ -57,13 +57,19 @@ bool send_comm(host_task* t){ //THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK W
 	memcpy(&fresh_con.addr.sin_addr.s_addr, target_ent->h_addr_list[0], target_ent->h_length);
 	fresh_con.addr.sin_port = htons(tcp_port);
 	//check for already established connection:
+	char tgt_addr[20];
+	inet_ntop(AF_INET, &fresh_con.addr, tgt_addr, 15);
 	int host_index = -1;
-	for(int i = 0; i < hosts.size(); i++)
-		if((fresh_con.addr.sin_addr.s_addr == hosts[i].addr.sin_addr.s_addr) && (fresh_con.addr.sin_port == hosts[i].addr.sin_port)){
+	for(int i = 0; i < hosts.size(); i++){
+		//TODO: this hack is....ewww. Research why gethostbyname on one ip returns another.
+		char this_addr[20];
+		inet_ntop(AF_INET, &hosts[i].addr, this_addr, 20);
+		if((strcmp(this_addr, receiver_hostname)==0) || (fresh_con.addr.sin_addr.s_addr == hosts[i].addr.sin_addr.s_addr)){
 			//std::cerr<<"found!\n";
 			host_index = i;
 			break;
 		}
+	}
 	//if there is no already established connection, connect
 	if(host_index == -1){
 		fail_false(connect(connection_no, (sockaddr*)&fresh_con.addr, sizeof(sockaddr_in)) >= 0);
@@ -232,6 +238,8 @@ bool run_talk_worker(int port){
 					if(!receive_body(i, (unsigned char*)inbuf)){
 						std::cerr<<"receive failed\n";
 						//TODO: generic failure?
+						drop(i--);
+						continue;
 					}
 					delete inbuf;//TODO: do something with it
 					hosts[i].is_packet_waiting = false;

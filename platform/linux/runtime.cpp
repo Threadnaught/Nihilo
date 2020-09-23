@@ -78,7 +78,7 @@ bool runtime::exec_task(host_task* t){
 		std::cerr<<"fuckfuckfuck\n";
 		return false;
 	}
-	std::cerr<<"done\n";//flush prints to docker
+	std::cerr<<"";//flush prints to docker
 	wasm_runtime_destroy_exec_env(e_env);
 	wasm_runtime_deinstantiate(inst);
 	wasm_runtime_unload(mod);

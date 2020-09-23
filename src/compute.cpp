@@ -57,21 +57,21 @@ void* run_compute_worker(void* args){
 		task_queue.release();
 		if(t!=nullptr)
 			if(runtime::exec_task(t)){
-				std::cerr<<"successful\n";
+				//std::cerr<<"successful\n";
 				//if there is a on_success event, copy to the queue
 				if(strlen(t->t.on_success) > 0){
 					//if there is a return value, set it as the param, and if not call without
 					if(t->ret_len > 0){
-						compute::copy_to_queue(t->origin_addr, t->dest_addr, t->t.on_success, nullptr, nullptr, nullptr, 0);
-					} else {
 						compute::copy_to_queue(t->origin_addr, t->dest_addr, t->t.on_success, nullptr, nullptr, t->ret, t->ret_len);
+					} else {
+						compute::copy_to_queue(t->origin_addr, t->dest_addr, t->t.on_success, nullptr, nullptr, nullptr, 0);
 					}
 				}
 
 				delete_task(t);
 			} else {
 				if(++t->retry_count >= max_retries){
-					//TODO: schedule on_failure
+					compute::copy_to_queue(t->origin_addr, t->dest_addr, t->t.on_failure, nullptr, nullptr, nullptr, 0);
 					delete_task(t);
 				} else {
 					task_queue.acquire()->push(t);
@@ -93,7 +93,7 @@ bool compute::launch_threads(int thread_count){
 
 bool compute::copy_to_queue(const char* dest_addr, const char* origin_addr, const char* function_name, const char* on_success, const char* on_failure, const unsigned char* param, int paramlen){
 	//ensure compliance:
-	std::cerr<<"Sending "<<function_name<<" to "<<dest_addr<<"\n";
+	//std::cerr<<"Sending "<<function_name<<" to "<<dest_addr<<"\n";
 	fail_false(!(strlen(dest_addr) > max_address_len));
 	fail_false(!(strlen(function_name) > max_func_len));
 	if(on_success != nullptr) fail_false(!(strlen(on_success) > max_func_len));
