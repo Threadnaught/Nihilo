@@ -74,10 +74,14 @@ bool runtime::exec_task(host_task* t){
 	wasm_runtime_set_user_data(e_env, t);
 	t->env_inst = inst;
 	unsigned int argv[1];
-	if(!wasm_runtime_call_wasm(e_env, func, 0, argv)){
-		std::cerr<<"fuckfuckfuck\n";
-		return false;
+	uint32_t param;
+	if(t->param_length > 0){
+		fail_false(copy_process_to_sandbox(&param, inst, ((unsigned char*)t)+sizeof(host_task), t->param_length));
+		argv[0] = param;
+	} else{
+		argv[0] = 0;
 	}
+	fail_false(wasm_runtime_call_wasm(e_env, func, 1, argv));
 	std::cerr<<"";//flush prints to docker
 	wasm_runtime_destroy_exec_env(e_env);
 	wasm_runtime_deinstantiate(inst);
