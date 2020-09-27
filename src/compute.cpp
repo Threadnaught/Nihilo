@@ -19,7 +19,7 @@ void delete_task(host_task* t){
 bool compute::init(){
 	//load machines into local_machines:
 	int table_len;
-	unsigned char* table = recall::read("machines_table", &table_len);
+	unsigned char* table = (unsigned char*)recall::read("machines_table", &table_len);
 	//if the table cannot be found, recreate db
 	if(table == nullptr){
 		std::cerr<<"recreating DB\n";
@@ -27,7 +27,7 @@ bool compute::init(){
 		recall::write("machines_table", &c, 0);
 		unsigned char new_pub[ecc_pub_size];
 		new_machine(new_pub);
-		table = recall::read("machines_table", &table_len);
+		table = (unsigned char*)recall::read("machines_table", &table_len);
 	}
 	//std::cerr<<"table size: "<<table_len<<"\n";
 	fail_false(table_len % ecc_pub_size == 0);
@@ -91,7 +91,7 @@ bool compute::launch_threads(int thread_count){
 	return true;
 }
 
-bool compute::copy_to_queue(const char* dest_addr, const char* origin_addr, const char* function_name, const char* on_success, const char* on_failure, const unsigned char* param, int paramlen){
+bool compute::copy_to_queue(const char* dest_addr, const char* origin_addr, const char* function_name, const char* on_success, const char* on_failure, const void* param, int paramlen){
 	//std::cerr<<"Sending "<<function_name<<" to "<<dest_addr<<"\n";
 	//ensure compliance:
 	fail_false(!(strlen(dest_addr) > max_address_len));
@@ -152,7 +152,7 @@ void compute::new_machine(unsigned char* pub_out){
 	recall::acquire_lock();
 	//save pub to table:
 	int table_len;
-	unsigned char* table = recall::read("machines_table", &table_len);
+	unsigned char* table = (unsigned char*)recall::read("machines_table", &table_len);
 	table = (unsigned char*)realloc(table, table_len+ecc_pub_size);
 	memcpy(table+table_len, pub_out, ecc_pub_size);
 	recall::write("machines_table", table, table_len+ecc_pub_size);
@@ -178,7 +178,7 @@ unsigned char* compute::get_wasm(unsigned char* pub, int* length){
 	char path[100];
 	bytes_to_hex(pub, ecc_pub_size, path);
 	strcpy(path+strlen(path), ".wasm");
-	unsigned char* wasm_data = recall::read(path, length);
+	unsigned char* wasm_data = (unsigned char*)recall::read(path, length);
 	recall::release_lock();
 	return wasm_data;
 }

@@ -3,6 +3,7 @@
 #include "../../include/platform.h"
 #include "wasm_export.h"
 
+//TODO: REVIEW POSSIBLE ERROR FROM AMBIGUITY BETWEEN nullptr and strlen() = 0
 
 bool copy_process_to_sandbox(uint32_t* dest, wasm_module_inst_t module_inst, const unsigned char *src, uint32_t size){
 	//this is where the magic happens
@@ -19,8 +20,22 @@ bool copy_sandbox_to_process(unsigned char* dest, wasm_module_inst_t module_inst
 	memcpy(dest, start, size);
 	return true;
 }
+bool copy_sandbox_to_process_str_buffer(char* dest, int dest_len, wasm_module_inst_t module_inst, uint32_t app_offset){
+	if(app_offset == 0){
+		dest[0] = 0;
+		return true;
+	}
+	//verify passed address addrs belongs to sandbox
+	fail_false(wasm_runtime_validate_app_str_addr(module_inst, app_offset));
+	//copy from sandbox to process
+	char* start = (char*)wasm_runtime_addr_app_to_native(module_inst, app_offset);
+	int len = strlen(start)+1;
+	fail_false(len <= dest_len);
+	memcpy(dest, start, len);
+	return true;
+}
 
-//TODO: exit out of runtime here??
+//TODO: exit out of runtime in set_return??
 
 //API implementation:
 bool set_return(wasm_exec_env_t exec_env, int32_t success, uint32_t ret, int32_t ret_len){
@@ -50,12 +65,38 @@ bool set_return(wasm_exec_env_t exec_env, int32_t success, uint32_t ret, int32_t
 	return true;
 }
 
+bool queue(wasm_exec_env_t exec_env, uint32_t dest, uint32_t func_name, uint32_t on_success, uint32_t on_failure, uint32_t param, uint32_t param_length){
+	host_task* t = (host_task*)wasm_runtime_get_user_data(exec_env);
+	char dest_buf[max_address_len];
+	fail_false(copy_sandbox_to_process_str_buffer(dest_buf, max_address_len, (wasm_module_inst_t)t->env_inst, dest));
+	char func_buf[max_func_len];
+	fail_false(copy_sandbox_to_process_str_buffer(func_buf, max_address_len, (wasm_module_inst_t)t->env_inst, func_name));
+	char success_buf[max_func_len];
+	fail_false(copy_sandbox_to_process_str_buffer(success_buf, max_address_len, (wasm_module_inst_t)t->env_inst, on_success));
+	char fail_buf[max_func_len];
+	fail_false(copy_sandbox_to_process_str_buffer(fail_buf, max_address_len, (wasm_module_inst_t)t->env_inst, on_failure));
+	unsigned char* param_buf = nullptr;
+	if(param_length > 0){
+		param_buf = new unsigned char[param_length];
+		fail_false(copy_sandbox_to_process(param_buf, (wasm_module_inst_t)t->env_inst, param, param_length));
+	}
+	fail_false(compute::copy_to_queue(dest_buf, t->dest_addr, func_buf, (strlen(success_buf)>0)?success_buf:nullptr, (strlen(fail_buf)>0)?fail_buf:nullptr, param_buf, param_length));
+	delete param_buf;
+	return true;
+}
+
 NativeSymbol nih_symbols[] =
 	{
 		{
 			"set_return",
 			(void*)set_return,
 			"(iii)i",
+			NULL
+		},
+		{
+			"queue",
+			(void*)queue,
+			"(iiiiii)i",//uint32_t dest, uint32_t func_name, uint32_t on_success, uint32_t on_failure, uint32_t param, uint32_t param_length
 			NULL
 		}
 };

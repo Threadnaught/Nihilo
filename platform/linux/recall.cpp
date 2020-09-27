@@ -13,13 +13,13 @@ namespace recall{
 		return true;
 	}
 
-	bool write(const char* key, const unsigned char* data, int datalen){
+	bool write(const char* key, const void* data, int datalen){
 		leveldb::WriteOptions writeOptions;
 		fail_false(db->Put(writeOptions, key, leveldb::Slice((char*)data, datalen)).ok());
 		return true;
 	}
 
-	unsigned char* read(const char* key, int* datalen){
+	void* read(const char* key, int* datalen){
 		*datalen = 0;
 		leveldb::ReadOptions readOptions;
 		std::string out;

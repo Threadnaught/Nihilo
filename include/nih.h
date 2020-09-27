@@ -49,7 +49,7 @@ struct host_task{//task (full)
 	int ret_len = -1;
 	unsigned char* ret = nullptr;
 	short param_length = 0; //0 for no param
-	bool success = 1;
+	bool success = true;//TODO: make this meaninful in compute.cpp
 	void* env_inst;
 	common_task t;
 };
@@ -83,7 +83,7 @@ namespace thread{
 namespace compute{
 	bool init();
 	bool launch_threads(int thread_count);
-	bool copy_to_queue(const char* dest_addr, const char* origin_addr, const char* function_name, const char* on_success, const char* on_failure, const unsigned char* param, int paramlen);
+	bool copy_to_queue(const char* dest_addr, const char* origin_addr, const char* function_name, const char* on_success, const char* on_failure, const void* param, int paramlen);
 	bool get_pub(unsigned char* id, unsigned char* pub_out);
 	bool get_priv(unsigned char* pub, unsigned char* priv_out);
 	void new_machine(unsigned char* pub_out);

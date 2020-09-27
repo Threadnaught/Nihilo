@@ -6,8 +6,8 @@
 
 namespace recall{
 	bool init(const char* dbpath);//dbpath can be empty string if not relevant for platform
-	bool write(const char* key, const unsigned char* data, int datalen);//write key/value pair into db
-	unsigned char* read(const char* key, int* datalen);//read kvp from db
+	bool write(const char* key, const void* data, int datalen);//write key/value pair into db
+	void* read(const char* key, int* datalen);//read kvp from db
 	char* next(const char* prev_key);//find next key after given key
 	void acquire_lock();//recall requires more fine-grained locking control than other things
 	void release_lock();
