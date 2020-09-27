@@ -20,24 +20,34 @@ bool copy_sandbox_to_process(unsigned char* dest, wasm_module_inst_t module_inst
 	return true;
 }
 
+//TODO: exit out of runtime here??
+
 //API implementation:
 bool set_return(wasm_exec_env_t exec_env, int32_t success, uint32_t ret, int32_t ret_len){
-	std::cerr<<"ret:"<<ret<<" ret length:"<<ret_len<<"\n";
+	//std::cerr<<"ret:"<<ret<<" ret length:"<<ret_len<<"\n";
 	host_task* t = (host_task*)wasm_runtime_get_user_data(exec_env);
-	unsigned char* tgt = new unsigned char[ret_len];
-	if(copy_sandbox_to_process(tgt, (wasm_module_inst_t)t->env_inst, ret, ret_len)) {
-		if(t->ret_len != -1)
-			delete t->ret;
-		t->ret = tgt;
-		t->ret_len = ret_len;
-		std::cerr<<"set\n";
-		return true;
+	t->success = success;
+	//if there is a previous ret, delete it
+	if(t->ret_len > 0){
+		delete t->ret;
+		t->ret = nullptr;
+		t->ret_len = 0;
 	}
-	else {
-		delete tgt;
-		std::cerr<<"not set\n";
-		return false;
+	//if there is a new ret, copy it out of sandbox mem
+	if(ret_len > 0){
+		unsigned char* tgt = new unsigned char[ret_len];
+		if(copy_sandbox_to_process(tgt, (wasm_module_inst_t)t->env_inst, ret, ret_len)) {
+			t->ret = tgt;
+			t->ret_len = ret_len;
+			//std::cerr<<"set\n";
+		}
+		else {
+			delete tgt;
+			std::cerr<<"not set\n";
+			return false;
+		}
 	}
+	return true;
 }
 
 NativeSymbol nih_symbols[] =

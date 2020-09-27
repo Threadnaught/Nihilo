@@ -1,5 +1,7 @@
 #include <stdint.h>
 
+//TODO: unsigned char* --> void*
+
 //add a function call to the correct queue
 void queue(const char* dest, const char* func_name, const char* on_success, const char* on_failure, const unsigned char* param, uint32_t param_length);
 //write write_length bytes of to_write to this machines db at path

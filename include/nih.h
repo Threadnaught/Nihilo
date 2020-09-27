@@ -48,7 +48,8 @@ struct host_task{//task (full)
 	int retry_count = 0;
 	int ret_len = -1;
 	unsigned char* ret = nullptr;
-	short param_length; //0 for no param
+	short param_length = 0; //0 for no param
+	bool success = 1;
 	void* env_inst;
 	common_task t;
 };
