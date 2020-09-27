@@ -1,0 +1,3 @@
+[submodule "common_deps/wasm-micro-runtime"]
+	path = common_deps/wasm-micro-runtime
+	url = https://github.com/bytecodealliance/wasm-micro-runtime

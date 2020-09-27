@@ -11,7 +11,7 @@
 namespace crypto{
 	bool encrypt(const unsigned char* secret, const unsigned char* to_encrypt, int to_encrypt_len, unsigned char* encrypted_buf){
 		//verify valid size:
-		fail_false(to_encrypt_len % aes_block_size != 0);
+		fail_false(to_encrypt_len % aes_block_size == 0);
 		mbedtls_aes_context aes;
 		//init context, set secret:
 		mbedtls_aes_init(&aes);
@@ -20,15 +20,17 @@ namespace crypto{
 		unsigned char* init_vector_source = encrypted_buf;
 		encrypted_buf += aes_block_size;
 		rng(nullptr, init_vector_source, aes_block_size);
-		//I DELETED AN INTERMEDIATE BUFFER HERE. REFER TO ORIGINAL SOURCE IF THIS IS AN ISSUE.
+		//mbedtls_aes_crypt_cbc alters IV buffer
+		unsigned char init_vector[aes_block_size];
+		memcpy(init_vector, init_vector_source, aes_block_size);
 		//encypt data:
-		fail_false(mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_ENCRYPT, to_encrypt_len, init_vector_source, to_encrypt, encrypted_buf) == 0);
+		fail_false(mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_ENCRYPT, to_encrypt_len, init_vector, to_encrypt, encrypted_buf) == 0);
 		mbedtls_aes_free(&aes);
 		return true;
 	}
 	
 	bool decrypt(const unsigned char* secret, unsigned char* to_decrypt, int to_decrypt_len, unsigned char* decrypted_buf){
-		fail_false(to_decrypt_len % aes_block_size != 0);
+		fail_false(to_decrypt_len % aes_block_size == 0);
 		mbedtls_aes_context aes;
 		mbedtls_aes_init(&aes);
 		fail_false(mbedtls_aes_setkey_dec(&aes, secret, shared_secret_size * 8) == 0);
@@ -65,9 +67,13 @@ namespace crypto{
 		fail_false(mbedtls_mpi_read_binary(&ecc.d, alice_priv, ecc_priv_size) == 0);
 		//create secret:
 		fail_false(mbedtls_ecdh_compute_shared(&ecc.grp, &ecc.z, &ecc.Qp, &ecc.d, rng, NULL) == 0);
-		fail_false(mbedtls_mpi_size(&ecc.z) == shared_secret_size);
+		int shared_size = mbedtls_mpi_size(&ecc.z);
+		fail_false(shared_size >= shared_secret_size);
 		//write into secret_buf
-		fail_false(mbedtls_mpi_write_binary(&ecc.z, secret_buf, 32) == 0);
+		unsigned char* intermediate_secret_buf = new unsigned char[shared_size];
+		fail_false(mbedtls_mpi_write_binary(&ecc.z, intermediate_secret_buf, shared_size) == 0);
+		memcpy(secret_buf, intermediate_secret_buf, shared_secret_size);
+		delete intermediate_secret_buf;
 		//cleanup
 		mbedtls_ecdh_free(&ecc);
 		return true;
