@@ -117,7 +117,7 @@ bool runtime::exec_task(host_task* t){
 	//lookup the function:
 	wasm_function_inst_t func = wasm_runtime_lookup_function(inst, t->t.function_name, NULL);
 	if(func == nullptr){
-		std::cerr<<"fuck\n";
+		std::cerr<<"Could not find function named "<<t->t.function_name<<"\n";
 		return false;
 	}
 	wasm_exec_env_t e_env = wasm_runtime_create_exec_env(inst, 8092);

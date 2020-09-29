@@ -1,6 +1,7 @@
 #pragma once
 
 #include<cstdio>
+#include<map>
 
 #include "nih.h"
 
@@ -28,4 +29,18 @@ namespace crypto{
 namespace runtime{
 	bool init();
 	bool exec_task(host_task* t);
+}
+
+namespace intercepts{
+	struct intercept_param{
+		uint16_t length;
+		void* ret;
+	};
+	typedef intercept_param (*raw_intercept_func)(intercept_param);
+	struct intercept_func{
+		const char* name;
+		raw_intercept_func func;
+		//TODO: machine type (root etc.)
+	};
+	void register_intercepts(std::map<std::string, intercept_func>& map);
 }

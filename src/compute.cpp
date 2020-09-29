@@ -4,10 +4,13 @@
 #include <pthread.h>
 #include <unistd.h>
 
+
 #include "../include/platform.h"
 
 thread::locker<std::queue<host_task*>> task_queue;
 thread::locker<std::vector<machine>> local_machines;
+unsigned char root_pub[ecc_pub_size];
+std::map<std::string, intercepts::intercept_func> platform_intercepts;
 
 void delete_task(host_task* t){
 	if(t->ret_len > 0){
@@ -39,9 +42,14 @@ bool compute::init(){
 		machine* m = (machine*)recall::read(pub_hex, &m_len);
 		fail_false(m_len == sizeof(machine));
 		locals->push_back(*m);
+		if(locals->size() == 1){//first machine, clearly the root TODO: create a db-wide config and make this more better
+			memcpy(root_pub, m->keypair.ecc_pub, ecc_pub_size);
+		}
 	}
 	local_machines.release();
 	delete table;
+	intercepts::register_intercepts(platform_intercepts);
+	std::cerr<<"size:::"<<platform_intercepts.size()<<"\n";
 	return true;
 }
 //loops checking for a task at the front of the queue, and exec
@@ -55,29 +63,48 @@ void* run_compute_worker(void* args){
 			acquired_queue->pop();
 		}
 		task_queue.release();
-		if(t!=nullptr)
-			if(runtime::exec_task(t)){
-				//std::cerr<<"successful\n";
-				//if there is a on_success event, copy to the queue
-				if(strlen(t->t.on_success) > 0){
-					//if there is a return value, set it as the param, and if not call without
-					if(t->ret_len > 0){
-						compute::copy_to_queue(t->origin_addr, t->dest_addr, t->t.on_success, nullptr, nullptr, t->ret, t->ret_len);
-					} else {
-						compute::copy_to_queue(t->origin_addr, t->dest_addr, t->t.on_success, nullptr, nullptr, nullptr, 0);
-					}
-				}
+		if(t!=nullptr){
+			//FIRST: check if this call is intercepted
+			//this behaviour is duplicated in exec_task
+			//TODO: move all this shit to host_task init
+			char* dest_pub = t->dest_addr;
+			if(strstr(dest_pub, "~") != nullptr){
+				dest_pub = strstr(dest_pub, "~")+1;
+			}
+			hex_to_bytes_array(dest_pub_bytes, dest_pub, ecc_pub_size);
+			auto found = platform_intercepts.find(t->t.function_name);
+			std::cerr<<"fname:"<<platform_intercepts.size()<<"\n";
 
+
+			if(memcmp(root_pub, dest_pub_bytes, ecc_pub_size) == 0 && found != platform_intercepts.end()){//check for intercepts
+				(*(found->second.func))({0, nullptr});
 				delete_task(t);
 			} else {
-				if(++t->retry_count >= max_retries){
-					compute::copy_to_queue(t->origin_addr, t->dest_addr, t->t.on_failure, nullptr, nullptr, nullptr, 0);
+				//SECOND: If this call is not intercepted, go through normal call
+				if(runtime::exec_task(t)){
+					//std::cerr<<"successful\n";
+					//if there is a on_success event, copy to the queue
+					if(strlen(t->t.on_success) > 0){
+						//if there is a return value, set it as the param, and if not call without
+						if(t->ret_len > 0){
+							compute::copy_to_queue(t->origin_addr, t->dest_addr, t->t.on_success, nullptr, nullptr, t->ret, t->ret_len);
+						} else {
+							compute::copy_to_queue(t->origin_addr, t->dest_addr, t->t.on_success, nullptr, nullptr, nullptr, 0);
+						}
+					}
 					delete_task(t);
 				} else {
-					task_queue.acquire()->push(t);
-					task_queue.release();
+					if(++t->retry_count >= max_retries){
+						if(strlen(t->t.on_failure) > 0)
+							compute::copy_to_queue(t->origin_addr, t->dest_addr, t->t.on_failure, nullptr, nullptr, nullptr, 0);
+						delete_task(t);
+					} else {
+						task_queue.acquire()->push(t);
+						task_queue.release();
+					}
 				}
 			}
+		}
 		else
 			usleep(1000);
 	}
