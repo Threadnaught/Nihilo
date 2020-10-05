@@ -25,6 +25,7 @@ struct machine_keypair{
 
 struct machine{
 	unsigned char ID[ID_size];
+	bool root;
 	machine_keypair keypair;
 };
 
@@ -91,6 +92,7 @@ namespace compute{
 	unsigned char* get_wasm(unsigned char* pub, int* length);
 	//TEMP/DEBUG:
 	void get_default_machine(unsigned char* pub_out);
+	bool load_from_proto(const char* proto_path);
 }
 
 namespace talk{
@@ -100,6 +102,7 @@ namespace talk{
 
 void bytes_to_hex(unsigned char* bytes, int bytes_len, char* hexbuffer);
 void hex_to_bytes(char* hexbuffer, unsigned char* bytes);
+char* read_file(const char* path, int* length);
 
 #define fail_check(condition, bad_ret) if(!(condition)) {std::cerr<<"error "<<errno<<": "<<__func__<<"() line "<<__LINE__<<"\n"; return bad_ret;}
 #define fail_false(condition) fail_check(condition, false)

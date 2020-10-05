@@ -1,0 +1,11 @@
+{
+	"target":{
+		"type":"root"
+	},
+	"wasm":{
+		"path":"test.wasm"
+	},
+	"data":{
+		
+	}
+}

@@ -36,6 +36,8 @@ int main(int argc, char** argv){
 	fail_check(recall::init(db_path), -1);
 	fail_check(compute::init(), -1);
 	if(strlen(wasm_path) > 0){
+		compute::load_from_proto(wasm_path);
+		/*//TODO: replace with read_file
 		FILE* wasm_file = fopen(wasm_path, "rb");
 		fseek(wasm_file, 0, SEEK_END);
 		int length = ftell(wasm_file);
@@ -43,10 +45,11 @@ int main(int argc, char** argv){
 		unsigned char* wasm_data = new unsigned char[length];
 		fread(wasm_data, length, 1, wasm_file);
 		fclose(wasm_file);
+		// /TODO
 		unsigned char default_mach[ecc_pub_size];
 		compute::get_default_machine(default_mach);
 		compute::save_wasm(default_mach, wasm_data, length);
-		delete wasm_data;
+		delete wasm_data;*/
 	}
 	if(strlen(ping_addr) > 0 && strlen(ping_from) > 0){
 		std::cerr<<"pinging "<<ping_addr<<" from "<<ping_from<<"\n";

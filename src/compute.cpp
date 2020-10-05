@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <unistd.h>
 
-
+#include <cjson/cJSON.h>
 #include "../include/platform.h"
 
 thread::locker<std::queue<host_task*>> task_queue;
@@ -42,14 +42,16 @@ bool compute::init(){
 		machine* m = (machine*)recall::read(pub_hex, &m_len);
 		fail_false(m_len == sizeof(machine));
 		locals->push_back(*m);
+		m->root = false;
 		if(locals->size() == 1){//first machine, clearly the root TODO: create a db-wide config and make this more better
 			memcpy(root_pub, m->keypair.ecc_pub, ecc_pub_size);
+			m->root = true;
 		}
 	}
 	local_machines.release();
 	delete table;
 	intercepts::register_intercepts(platform_intercepts);
-	std::cerr<<"size:::"<<platform_intercepts.size()<<"\n";
+	//std::cerr<<"intercepts:"<<platform_intercepts.size()<<"\n";
 	return true;
 }
 //loops checking for a task at the front of the queue, and exec
@@ -213,4 +215,51 @@ unsigned char* compute::get_wasm(unsigned char* pub, int* length){
 void compute::get_default_machine(unsigned char* pub_out){
 	memcpy(pub_out, local_machines.acquire()->at(0).keypair.ecc_pub, ecc_pub_size);
 	local_machines.release();
+}
+
+//code to load machine from manifest file into
+bool compute::load_from_proto(const char* proto_path){
+	int len;
+	char* current_path = new char[strlen(proto_path)+32];
+	strcpy(current_path, proto_path);
+	strcpy(current_path+strlen(proto_path), "/manifest.json");
+	char* data = read_file(current_path, &len);
+	cJSON* json = cJSON_Parse(data);//TODO:non zero termination??????????
+	cJSON* mach = cJSON_GetObjectItem(json, "target");
+	fail_false(mach != nullptr);
+	cJSON* mach_type = cJSON_GetObjectItem(mach, "type");
+	bool targets_root = (mach_type != nullptr) && (mach_type->type == cJSON_String) && (strcmp(mach_type->valuestring, "root") == 0);
+	//TODO: add a way to specify the pub
+	fail_false(targets_root);//TODO: add a way to target non-root machines
+
+	auto machines = local_machines.acquire();
+	int target = -1;
+	for(int i = 0; i < machines->size(); i++)
+		if((*machines)[i].root){//TODO: add a way to target non-root machines
+			target = i;
+			break;
+		}
+	
+	//TODO: create non-existent machines
+	fail_false(target >= 0);
+
+	cJSON* wasm = cJSON_GetObjectItem(json, "wasm");
+	if(wasm != nullptr){
+		cJSON* path = cJSON_GetObjectItem(json, "path");
+		if(path != nullptr){
+			int length;
+			strcpy(current_path+strlen(proto_path), "/");
+			strcpy(current_path+strlen(current_path), path->valuestring);
+			unsigned char* wasm_file = (unsigned char*)read_file(current_path, &length);
+			compute::save_wasm((*machines)[target].keypair.ecc_pub, wasm_file, length);
+			delete wasm_file;
+		}
+		//TODO: allow for embedding wasm in manifest?
+	}
+
+	cJSON* mach_data = cJSON_GetObjectItem(json, "data");
+	//TODO: data data data
+	local_machines.release();
+	delete current_path;
+	return true;
 }

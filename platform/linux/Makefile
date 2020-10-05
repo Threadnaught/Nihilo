@@ -1,5 +1,5 @@
 default: recall.o crypto.o runtime.o intercepts.o ../../include/*.h ../../src/*.o
-	g++ -L../../common_deps/wasm-micro-runtime/product-mini/platforms/linux/build/ -g ../../src/*.o *.o  -o ../../bin/nih -lleveldb -lmbedcrypto -lvmlib -pthread
+	g++ -L../../common_deps/wasm-micro-runtime/product-mini/platforms/linux/build/ -g ../../src/*.o *.o  -o ../../bin/nih -lleveldb -lmbedcrypto -lvmlib -lcjson -pthread
 
 recall.o: recall.cpp ../../include/*.h
 	g++ -g -c recall.cpp

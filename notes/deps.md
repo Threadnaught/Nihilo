@@ -1,1 +1,1 @@
-sudo apt install libleveldb-dev libmbedtls-dev
+sudo apt install libleveldb-dev libmbedtls-dev libcjson-dev
