@@ -54,7 +54,7 @@ int main(int argc, char** argv){
 	if(strlen(ping_addr) > 0 && strlen(ping_from) > 0){
 		std::cerr<<"pinging "<<ping_addr<<" from "<<ping_from<<"\n";
 		const char* param = "hello, world!";
-		compute::copy_to_queue(ping_addr, ping_from, "interceptor", nullptr, nullptr, param, strlen(param)+1);
+		compute::copy_to_queue(ping_addr, ping_from, "entry", nullptr, nullptr, param, strlen(param)+1);
 	}
 	fail_check(runtime::init(), -1);
 	fail_check(compute::launch_threads(1), -1);

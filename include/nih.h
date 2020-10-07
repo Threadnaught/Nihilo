@@ -87,7 +87,7 @@ namespace compute{
 	bool copy_to_queue(const char* dest_addr, const char* origin_addr, const char* function_name, const char* on_success, const char* on_failure, const void* param, int paramlen);
 	bool get_pub(unsigned char* id, unsigned char* pub_out);
 	bool get_priv(unsigned char* pub, unsigned char* priv_out);
-	void new_machine(unsigned char* pub_out);
+	void new_machine(unsigned char* pub_out, bool root);
 	bool save_wasm(unsigned char* pub, unsigned char* wasm, int length);
 	unsigned char* get_wasm(unsigned char* pub, int* length);
 	//TEMP/DEBUG:
@@ -104,7 +104,7 @@ void bytes_to_hex(unsigned char* bytes, int bytes_len, char* hexbuffer);
 void hex_to_bytes(char* hexbuffer, unsigned char* bytes);
 char* read_file(const char* path, int* length);
 
-#define fail_check(condition, bad_ret) if(!(condition)) {std::cerr<<"error "<<errno<<": "<<__func__<<"() line "<<__LINE__<<"\n"; return bad_ret;}
+#define fail_check(condition, bad_ret) if(!(condition)) {std::cerr<<"error "<<errno<<": "<<__func__<<"() line: "<<__LINE__<<" file: "<<__FILE__"\n"; return bad_ret;}
 #define fail_false(condition) fail_check(condition, false)
 #define bytes_to_hex_array(name, bytes, len) char name[(len*2)+1]; bytes_to_hex(bytes, len, name);
 #define hex_to_bytes_array(name, str, len) unsigned char name[len]; hex_to_bytes(str, name);

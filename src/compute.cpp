@@ -29,7 +29,7 @@ bool compute::init(){
 		unsigned char c;
 		recall::write("machines_table", &c, 0);
 		unsigned char new_pub[ecc_pub_size];
-		new_machine(new_pub);
+		new_machine(new_pub, true);
 		table = (unsigned char*)recall::read("machines_table", &table_len);
 	}
 	//std::cerr<<"table size: "<<table_len<<"\n";
@@ -42,10 +42,8 @@ bool compute::init(){
 		machine* m = (machine*)recall::read(pub_hex, &m_len);
 		fail_false(m_len == sizeof(machine));
 		locals->push_back(*m);
-		m->root = false;
 		if(locals->size() == 1){//first machine, clearly the root TODO: create a db-wide config and make this more better
 			memcpy(root_pub, m->keypair.ecc_pub, ecc_pub_size);
-			m->root = true;
 		}
 	}
 	local_machines.release();
@@ -75,8 +73,7 @@ void* run_compute_worker(void* args){
 			}
 			hex_to_bytes_array(dest_pub_bytes, dest_pub, ecc_pub_size);
 			auto found = platform_intercepts.find(t->t.function_name);
-			std::cerr<<"fname:"<<platform_intercepts.size()<<"\n";
-
+			//std::cerr<<"fname:"<<platform_intercepts.size()<<"\n";
 
 			if(memcmp(root_pub, dest_pub_bytes, ecc_pub_size) == 0 && found != platform_intercepts.end()){//check for intercepts
 				(*(found->second.func))({0, nullptr});
@@ -165,12 +162,13 @@ bool compute::get_priv(unsigned char* pub, unsigned char* priv_out){
 	local_machines.release();
 	return false;
 }
-void compute::new_machine(unsigned char* pub_out){
+void compute::new_machine(unsigned char* pub_out, bool root){
 	//gen keypair:
 	unsigned char priv[ecc_priv_size];
 	crypto::gen_ecdh_keypair(pub_out, priv);
 	//fill out machine:
 	machine m;
+	m.root = root;
 	memcpy(m.keypair.ecc_pub, pub_out, ecc_pub_size);
 	memcpy(m.keypair.ecc_priv, priv, ecc_priv_size);
 	crypto::id_from_pub(pub_out, m.ID);
@@ -245,12 +243,14 @@ bool compute::load_from_proto(const char* proto_path){
 
 	cJSON* wasm = cJSON_GetObjectItem(json, "wasm");
 	if(wasm != nullptr){
-		cJSON* path = cJSON_GetObjectItem(json, "path");
+		cJSON* path = cJSON_GetObjectItem(wasm, "path");
 		if(path != nullptr){
 			int length;
 			strcpy(current_path+strlen(proto_path), "/");
 			strcpy(current_path+strlen(current_path), path->valuestring);
+			
 			unsigned char* wasm_file = (unsigned char*)read_file(current_path, &length);
+
 			compute::save_wasm((*machines)[target].keypair.ecc_pub, wasm_file, length);
 			delete wasm_file;
 		}

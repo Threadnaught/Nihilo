@@ -6,11 +6,12 @@
 #include "../../include/api.h"
 
 void entry(char* arg){
-	queue("pinger~64453268BD298278F295067C5881C325BBE315D2DCF20894E13822509AF95708", "inner", "inner_sucesss", "inner_failure", NULL, 0);
+	printf("entry\n");
+	queue("pinger~214D970D557E0A205F1592C5A90568335D88E4312CADD3F9EB6A38B1D3A4CAEB", "inner", "inner_sucesss", "inner_failure", NULL, 0);
 }
 void inner(char* arg){
-	printf("hi\n");
-	//set_return(0, NULL, 0);
+	printf("inner\n");
+	//set_return(1, NULL, 0);
 }
 void inner_sucesss(char* arg){
 	printf("success\n");
