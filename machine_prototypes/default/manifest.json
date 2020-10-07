@@ -1,11 +1,14 @@
 {
 	"target":{
-		"type":"root"
+		"type":"root",
+		"pub":"TODO:ADD PUB TARGETING",
+		"priv":"TODO: ADD MACHINE CREATION"
 	},
 	"wasm":{
-		"path":"test.wasm"
+		"path":"test.wasm",
+		"hex":"TODO: ADD HEX SUPPORT"
 	},
 	"data":{
-		
+		"val":"TODO:ADD DATA STORAGE & INIT"
 	}
 }
