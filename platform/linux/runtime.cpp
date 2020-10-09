@@ -4,6 +4,7 @@
 #include "wasm_export.h"
 
 //TODO: REVIEW POSSIBLE ERROR FROM AMBIGUITY BETWEEN nullptr and strlen() = 0
+//TODO: THIS WHOLE DAMN FILE NEEDS A REFACTOR AND A HEFTY COMMENT PASS
 
 bool copy_process_to_sandbox(uint32_t* dest, wasm_module_inst_t module_inst, const unsigned char *src, uint32_t size){
 	//this is where the magic happens
@@ -85,6 +86,50 @@ bool queue(wasm_exec_env_t exec_env, uint32_t dest, uint32_t func_name, uint32_t
 	return true;
 }
 
+bool write_DB(wasm_exec_env_t exec_env, uint32_t path, uint32_t to_write, uint32_t write_length){
+	fail_false(write_length < 1000);
+	host_task* t = (host_task*)wasm_runtime_get_user_data(exec_env);
+	char tgt_path[200];
+	char* this_pub = strstr(t->dest_addr, "~");
+	if(this_pub == nullptr)
+		this_pub = t->dest_addr;
+	else
+		this_pub++;
+	strcpy(tgt_path, this_pub);
+	strcpy(tgt_path+strlen(tgt_path), ".");
+	fail_false(copy_sandbox_to_process_str_buffer(tgt_path+strlen(tgt_path), sizeof(tgt_path)-strlen(tgt_path), (wasm_module_inst_t)t->env_inst, path))
+	unsigned char* to_write_process = new unsigned char[write_length];
+	fail_false(copy_sandbox_to_process(to_write_process, (wasm_module_inst_t)t->env_inst, to_write, write_length));
+	recall::acquire_lock();
+	recall::write(tgt_path, to_write_process, write_length);
+	recall::release_lock();
+	delete to_write_process;
+	return true;
+}
+uint32_t read_DB(wasm_exec_env_t exec_env, uint32_t path, uint32_t read_length){
+	host_task* t = (host_task*)wasm_runtime_get_user_data(exec_env);
+	char tgt_path[200];
+	char* this_pub = strstr(t->dest_addr, "~");
+	if(this_pub == nullptr)
+		this_pub = t->dest_addr;
+	else
+		this_pub++;
+	strcpy(tgt_path, this_pub);
+	strcpy(tgt_path+strlen(tgt_path), ".");
+	fail_false(copy_sandbox_to_process_str_buffer(tgt_path+strlen(tgt_path), sizeof(tgt_path)-strlen(tgt_path), (wasm_module_inst_t)t->env_inst, path))
+	recall::acquire_lock();
+	int datalen;
+	void* ret = recall::read(tgt_path, &datalen);
+	recall::release_lock();
+	fail_false(ret != nullptr);
+	wasm_runtime_validate_app_addr((wasm_module_inst_t)t->env_inst, read_length, sizeof(uint32_t));
+	uint32_t* read_length_ptr = (uint32_t*)wasm_runtime_addr_app_to_native((wasm_module_inst_t)t->env_inst, read_length);
+	(*read_length_ptr) = datalen;
+	uint32_t ret_sandbox;
+	copy_process_to_sandbox(&ret_sandbox, (wasm_module_inst_t)t->env_inst, (unsigned char*)ret, datalen);
+	return ret_sandbox;
+}
+
 NativeSymbol nih_symbols[] =
 	{
 		{
@@ -97,6 +142,18 @@ NativeSymbol nih_symbols[] =
 			"queue",
 			(void*)queue,
 			"(iiiiii)i",//uint32_t dest, uint32_t func_name, uint32_t on_success, uint32_t on_failure, uint32_t param, uint32_t param_length
+			NULL
+		},
+		{
+			"write_DB",
+			(void*)write_DB,
+			"(iii)i",
+			NULL
+		},
+		{
+			"read_DB",
+			(void*)read_DB,
+			"(ii)i",
 			NULL
 		}
 };
