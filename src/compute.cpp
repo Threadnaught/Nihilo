@@ -215,6 +215,45 @@ void compute::get_default_machine(unsigned char* pub_out){
 	local_machines.release();
 }
 
+bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char* limit){
+	cJSON* child = node->child;
+	while(child){
+		fail_false (strlen(child->string) + cursor < (limit-2)) 
+		fail_false (strstr(".", child->string)==nullptr);
+		*cursor = '.';
+		cursor++;
+		strcpy(cursor, child->string);
+		cursor += strlen(child->string);
+		if(child->type == cJSON_Array){
+			recall::delete_all_with_prefix(current_path);
+			fail_false(cJSON_GetArraySize(child) > 0);
+			cJSON* zeroth = cJSON_GetArrayItem(child, 0);
+			fail_false(zeroth->type == cJSON_String);
+			if(strcmp(zeroth->valuestring, "absent") != 0){
+				fail_false(cJSON_GetArraySize(child) == 2);
+				if(strcmp(zeroth->valuestring, "string") == 0){
+					cJSON* first = cJSON_GetArrayItem(child, 1);
+					fail_false(first->type == cJSON_String);
+					//std::cerr<<"writing "<<first->valuestring<<" to "<<current_path<<"\n";
+					recall::write(current_path, first->valuestring, strlen(first->valuestring)+1);
+				} else if(strcmp(zeroth->valuestring, "hex") == 0){
+					fail_false(false);//TODO
+				} else {
+					std::cerr<<"attempt to load prototype data with unkown type:"<<zeroth->valuestring<<"\n";
+					return false;
+				}
+			}
+		}
+		else if(child->type == cJSON_Object){
+			recurse_load_data(child, current_path, cursor, limit);
+		}
+		for(; *cursor != '.' && cursor > current_path; cursor--);
+		fail_false(cursor > current_path);//COULD SOMEONE OVERWRITE THEIR PUB KEY AND BREAK OUT OF SANDOBOX WITH THIS CHECK???
+		*cursor = '\0';
+		child = child->next;
+	}
+	return true;
+}
 //code to load machine from manifest file into
 bool compute::load_from_proto(const char* proto_path){
 	int len;
@@ -240,7 +279,7 @@ bool compute::load_from_proto(const char* proto_path){
 	
 	//TODO: create non-existent machines
 	fail_false(target >= 0);
-
+	//TODO: FOLD THE FOLLOWING INTO data
 	cJSON* wasm = cJSON_GetObjectItem(json, "wasm");
 	if(wasm != nullptr){
 		cJSON* path = cJSON_GetObjectItem(wasm, "path");
@@ -258,7 +297,10 @@ bool compute::load_from_proto(const char* proto_path){
 	}
 
 	cJSON* mach_data = cJSON_GetObjectItem(json, "data");
-	//TODO: data data data
+	char current_node_path[200];
+	bytes_to_hex((*machines)[target].keypair.ecc_pub, ecc_pub_size, current_node_path);
+	char* cursor = current_node_path + strlen(current_node_path);
+	recurse_load_data(mach_data, current_node_path, cursor, current_node_path + sizeof(current_node_path));
 	local_machines.release();
 	delete current_path;
 	return true;

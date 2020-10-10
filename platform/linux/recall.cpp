@@ -31,8 +31,17 @@ namespace recall{
 		return ret;
 	}
 
-	char* next(const char* prev_key){
+	/*char* next(const char* prev_key){
 		return nullptr;
+	}*/
+	bool delete_all_with_prefix(const char* prefix){
+		leveldb::Iterator* it = db->NewIterator(leveldb::ReadOptions());
+		for(it->Seek(prefix); it->Valid()&& it->key().starts_with(prefix); it->Next()){
+			//std::cerr<<"current:"<<it->key().ToString()<<"\n";
+			if(!db->Delete(leveldb::WriteOptions(), it->key()).ok())
+				return false;
+		}
+		return true;
 	}
 	void acquire_lock(){
 		database_mutex.lock();

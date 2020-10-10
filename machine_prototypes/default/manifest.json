@@ -8,7 +8,12 @@
 		"path":"test.wasm",
 		"hex":"TODO: ADD HEX SUPPORT"
 	},
+	"clear_data":true,
 	"data":{
-		"val":"TODO:ADD DATA STORAGE & INIT"
+		"foo":["string", "bar"],
+		"test":{
+			"test":["absent"],
+			"yes":["string", "no"]
+		}
 	}
 }
