@@ -4,7 +4,7 @@
 		"pub":"TODO:ADD PUB TARGETING",
 		"priv":"TODO: ADD MACHINE CREATION"
 	},
-	"clear_data":true,
+	"reset_data":true,
 	"data":{
 		"wasm":["file", "test.wasm"],
 		"foo":["string", "bar"],

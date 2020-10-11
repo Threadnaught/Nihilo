@@ -242,14 +242,13 @@ bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char
 			if(strcmp(zeroth->valuestring, "absent") != 0){
 				fail_false(cJSON_GetArraySize(child) == 2);
 				if(strcmp(zeroth->valuestring, "string") == 0){
-					std::cerr<<"loading string\n";
+					//simplest case: load string as literal
 					cJSON* first = cJSON_GetArrayItem(child, 1);
 					fail_false(first->type == cJSON_String);
-					//std::cerr<<"writing "<<first->valuestring<<" to "<<current_path<<"\n";
 					recall::write(current_path, first->valuestring, strlen(first->valuestring)+1);
 				} 
 				else if(strcmp(zeroth->valuestring, "hex") == 0){
-					//std::cerr<<"loading hex\n";
+					//convert hex string to bytes
 					cJSON* first = cJSON_GetArrayItem(child, 1);
 					fail_false(first->type == cJSON_String);
 					int hex_len = strlen(first->valuestring);
@@ -259,6 +258,7 @@ bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char
 					recall::write(current_path, to_write, hex_len/2);
 				}
 				else if(strcmp(zeroth->valuestring, "file") == 0){
+					//open file pointed to by value, and save it
 					cJSON* first = cJSON_GetArrayItem(child, 1);
 					fail_false(first->type == cJSON_String);
 					int flen;
@@ -310,12 +310,18 @@ bool compute::load_from_proto(const char* proto_path){
 			break;
 		}
 	
-	//TODO: create non-existent machines
+	//TODO: create not currently existing machines
 	fail_false(target >= 0);
-	cJSON* mach_data = cJSON_GetObjectItem(json, "data");
 	char current_node_path[200];
 	bytes_to_hex((*machines)[target].keypair.ecc_pub, ecc_pub_size, current_node_path);
 	char* cursor = current_node_path + strlen(current_node_path);
+	cJSON* reset_data = cJSON_GetObjectItem(json, "reset_data");
+	if(reset_data != nullptr && reset_data->valueint == true){
+		strcpy(cursor, ".");
+		recall::delete_all_with_prefix(current_node_path);
+		*cursor = '\0';
+	}
+	cJSON* mach_data = cJSON_GetObjectItem(json, "data");
 	fail_false(recurse_load_data(mach_data, current_node_path, cursor, current_node_path + sizeof(current_node_path)));
 	local_machines.release();
 	fail_false(chdir(working_dir) != -1);
