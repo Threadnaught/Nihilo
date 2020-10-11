@@ -1,0 +1,13 @@
+{
+	"target":{
+		"type":"root",
+		"pub":"TODO:ADD PUB TARGETING",
+		"priv":"TODO: ADD MACHINE CREATION"
+	},
+	"reset_data":true,
+	"data":{
+		"wasm":["file", "test.wasm"],
+		"foo":["string", "bar"],
+		"test":["absent"]
+	}
+}

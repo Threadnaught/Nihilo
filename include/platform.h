@@ -1,6 +1,7 @@
 #pragma once
 
 #include<cstdio>
+#include<map>
 
 #include "nih.h"
 
@@ -8,7 +9,8 @@ namespace recall{
 	bool init(const char* dbpath);//dbpath can be empty string if not relevant for platform
 	bool write(const char* key, const void* data, int datalen);//write key/value pair into db
 	void* read(const char* key, int* datalen);//read kvp from db
-	char* next(const char* prev_key);//find next key after given key
+	//char* next(const char* prev_key);//find next key after given key
+	bool delete_all_with_prefix(const char* prefix);
 	void acquire_lock();//recall requires more fine-grained locking control than other things
 	void release_lock();
 }
@@ -28,4 +30,18 @@ namespace crypto{
 namespace runtime{
 	bool init();
 	bool exec_task(host_task* t);
+}
+
+namespace intercepts{
+	struct intercept_param{
+		uint16_t length;
+		void* ret;
+	};
+	typedef intercept_param (*raw_intercept_func)(intercept_param);
+	struct intercept_func{
+		const char* name;
+		raw_intercept_func func;
+		//TODO: machine type (root etc.)
+	};
+	void register_intercepts(std::map<std::string, intercept_func>& map);
 }

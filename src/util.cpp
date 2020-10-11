@@ -17,3 +17,13 @@ void hex_to_bytes(char* hexbuffer, unsigned char* bytes){
 		bytes[i] = (unsigned char)val;
 	}
 }
+char* read_file(const char* path, int* length){
+	FILE* file = fopen(path, "rb");
+	fseek(file, 0, SEEK_END);
+	*length = ftell(file);
+	fseek(file, 0, SEEK_SET);
+	char* data = new char[*length];
+	fread(data, *length, 1, file);
+	fclose(file);
+	return data;
+}
