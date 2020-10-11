@@ -4,16 +4,10 @@
 		"pub":"TODO:ADD PUB TARGETING",
 		"priv":"TODO: ADD MACHINE CREATION"
 	},
-	"wasm":{
-		"path":"test.wasm",
-		"hex":"TODO: ADD HEX SUPPORT"
-	},
 	"clear_data":true,
 	"data":{
+		"wasm":["file", "test.wasm"],
 		"foo":["string", "bar"],
-		"test":{
-			"test":["absent"],
-			"yes":["string", "no"]
-		}
+		"test":["absent"]
 	}
 }

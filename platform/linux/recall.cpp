@@ -15,6 +15,7 @@ namespace recall{
 
 	bool write(const char* key, const void* data, int datalen){
 		leveldb::WriteOptions writeOptions;
+		//std::cerr<<"writing to "<<key<<" with "<<datalen<<" bytes\n";
 		fail_false(db->Put(writeOptions, key, leveldb::Slice((char*)data, datalen)).ok());
 		return true;
 	}
