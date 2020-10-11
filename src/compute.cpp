@@ -214,7 +214,6 @@ void compute::get_default_machine(unsigned char* pub_out){
 	memcpy(pub_out, local_machines.acquire()->at(0).keypair.ecc_pub, ecc_pub_size);
 	local_machines.release();
 }
-//TODO: goto and cleanup (cJSON delete, reset working directory, memory cleanup) instead of fail_false
 bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char* limit){
 	//get first child:
 	cJSON* child = node->child;
@@ -288,30 +287,32 @@ bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char
 }
 //code to load machine from manifest file into
 bool compute::load_from_proto(const char* proto_path){
+	//move over working directory
 	char working_dir[512];
 	fail_false(getcwd(working_dir, sizeof(working_dir)) != nullptr);//this could be the source of problems on microcontrollers
-	std::cerr<<"working_dir:"<<working_dir<<"\n";
 	fail_false(chdir(proto_path) != -1);
+	//load manifest:
 	int len;
 	char* data = read_file("manifest.json", &len);
 	cJSON* json = cJSON_Parse(data);//TODO:non zero termination??????????
+	//find target machine:
 	cJSON* mach = cJSON_GetObjectItem(json, "target");
 	fail_false(mach != nullptr);
 	cJSON* mach_type = cJSON_GetObjectItem(mach, "type");
 	bool targets_root = (mach_type != nullptr) && (mach_type->type == cJSON_String) && (strcmp(mach_type->valuestring, "root") == 0);
 	//TODO: add a way to specify the pub
 	fail_false(targets_root);//TODO: add a way to target non-root machines
-
 	auto machines = local_machines.acquire();
 	int target = -1;
 	for(int i = 0; i < machines->size(); i++)
-		if((*machines)[i].root){//TODO: add a way to target non-root machines
+		if((*machines)[i].root){
 			target = i;
 			break;
 		}
 	
 	//TODO: create not currently existing machines
 	fail_false(target >= 0);
+	//check for reset_data:
 	char current_node_path[200];
 	bytes_to_hex((*machines)[target].keypair.ecc_pub, ecc_pub_size, current_node_path);
 	char* cursor = current_node_path + strlen(current_node_path);
@@ -321,9 +322,11 @@ bool compute::load_from_proto(const char* proto_path){
 		recall::delete_all_with_prefix(current_node_path);
 		*cursor = '\0';
 	}
+	//load data:
 	cJSON* mach_data = cJSON_GetObjectItem(json, "data");
 	fail_false(recurse_load_data(mach_data, current_node_path, cursor, current_node_path + sizeof(current_node_path)));
 	local_machines.release();
 	fail_false(chdir(working_dir) != -1);
+	//TODO: create cleanup GOTO (cJSON delete, reset working directory, memory cleanup)
 	return true;
 }
