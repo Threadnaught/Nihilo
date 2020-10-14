@@ -17,14 +17,14 @@ namespace recall{
 
 namespace crypto{
 	//AES functions:
-	bool encrypt(const unsigned char* secret, const unsigned char* to_encrypt, int to_encrypt_len, unsigned char* encrypted_buf);
-	bool decrypt(const unsigned char* secret, unsigned char* to_decrypt, int to_decrypt_len, unsigned char* decrypted_buf);
+	bool encrypt(const key_byte* secret, const unsigned char* to_encrypt, int to_encrypt_len, unsigned char* encrypted_buf);
+	bool decrypt(const key_byte* secret, unsigned char* to_decrypt, int to_decrypt_len, unsigned char* decrypted_buf);
 	//ECDH functions:
-	bool gen_ecdh_keypair(unsigned char* pub, unsigned char* priv);
-	bool derrive_shared(const unsigned char* alice_priv, const unsigned char* bob_pub, unsigned char* secret_buf);
+	bool gen_ecdh_keypair(key_byte* pub, key_byte* priv);
+	bool derrive_shared(const key_byte* alice_priv, const key_byte* bob_pub, key_byte* secret_buf);
 	//misc functions:
 	int rng(void* state, unsigned char* outbytes, size_t len); //MUST BE CRYPTOGRAPHICALLY SECURE
-	bool id_from_pub(const unsigned char* pub, unsigned char* id);
+	bool id_from_pub(const key_byte* pub, key_byte* id);
 }
 
 namespace runtime{

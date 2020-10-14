@@ -43,7 +43,7 @@ bool set_return(wasm_exec_env_t exec_env, int32_t success, uint32_t ret, int32_t
 	t->success = success;
 	//if there is a previous ret, delete it
 	if(t->ret_len > 0){
-		delete t->ret;
+		free(t->ret);
 		t->ret = nullptr;
 		t->ret_len = 0;
 	}
@@ -164,10 +164,10 @@ bool runtime::init(){
 bool runtime::exec_task(host_task* t){
 	hex_to_bytes_array(target_pub, t->dest_addr, ecc_pub_size);
 	int buf_len;
-	unsigned char* buf = compute::get_wasm(target_pub, &buf_len);
+	void* buf = compute::get_wasm(target_pub, &buf_len);
 	char error_buf[128];
 	error_buf[0] = 0;
-	wasm_module_t mod = wasm_runtime_load(buf, buf_len, error_buf, sizeof(error_buf));
+	wasm_module_t mod = wasm_runtime_load((unsigned char*)buf, buf_len, error_buf, sizeof(error_buf));
 	wasm_module_inst_t inst = wasm_runtime_instantiate(mod, 8092, 8092, error_buf, sizeof(error_buf));
 	//lookup the function:
 	wasm_function_inst_t func = wasm_runtime_lookup_function(inst, t->t.function_name, NULL);

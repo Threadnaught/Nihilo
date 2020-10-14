@@ -13,7 +13,7 @@ std::map<std::string, intercepts::intercept_func> platform_intercepts;
 
 void delete_task(host_task* t){
 	if(t->ret_len > 0){
-		delete t->ret;
+		free(t->ret);
 	}
 	delete t;
 }
@@ -178,33 +178,24 @@ void compute::new_machine(unsigned char* pub_out, bool root){
 	recall::acquire_lock();
 	//save pub to table:
 	int table_len;
-	unsigned char* table = (unsigned char*)recall::read("machines_table", &table_len);
-	table = (unsigned char*)realloc(table, table_len+ecc_pub_size);
+	void* table = recall::read("machines_table", &table_len);
+	table = realloc(table, table_len+ecc_pub_size);
 	memcpy(table+table_len, pub_out, ecc_pub_size);
 	recall::write("machines_table", table, table_len+ecc_pub_size);
 	//save machine
 	bytes_to_hex_array(pub_hex, pub_out, ecc_pub_size);
-	recall::write(pub_hex, (unsigned char*)&m, sizeof(machine));
+	recall::write(pub_hex, &m, sizeof(machine));
 	std::cerr<<"created machine:"<<pub_hex<<"\n";
 	delete table;
 	recall::release_lock();
 }
 
-bool compute::save_wasm(unsigned char* pub, unsigned char* wasm, int length){
+void* compute::get_wasm(unsigned char* pub, int* length){
 	recall::acquire_lock();
 	char path[100];
 	bytes_to_hex(pub, ecc_pub_size, path);
 	strcpy(path+strlen(path), ".wasm");
-	fail_false(recall::write(path, wasm, length));
-	recall::release_lock();
-	return true;
-}
-unsigned char* compute::get_wasm(unsigned char* pub, int* length){
-	recall::acquire_lock();
-	char path[100];
-	bytes_to_hex(pub, ecc_pub_size, path);
-	strcpy(path+strlen(path), ".wasm");
-	unsigned char* wasm_data = (unsigned char*)recall::read(path, length);
+	void* wasm_data = recall::read(path, length);
 	recall::release_lock();
 	return wasm_data;
 }

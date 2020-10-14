@@ -20,6 +20,8 @@
 #define max_address_len 100
 #define max_retries 3
 
+typedef unsigned char key_byte;
+
 struct machine_keypair{
 	unsigned char ecc_pub[ecc_pub_size];
 	unsigned char ecc_priv[ecc_priv_size];
@@ -50,7 +52,7 @@ struct host_task{//task (full)
 	char dest_addr[max_address_len];
 	int retry_count = 0;
 	int ret_len = -1;
-	unsigned char* ret = nullptr;
+	void* ret = nullptr;
 	short param_length = 0; //0 for no param
 	bool success = true;
 	void* env_inst;
@@ -87,13 +89,12 @@ namespace compute{
 	bool init();
 	bool launch_threads(int thread_count);
 	bool copy_to_queue(const char* dest_addr, const char* origin_addr, const char* function_name, const char* on_success, const char* on_failure, const void* param, int paramlen);
-	bool get_pub(unsigned char* id, unsigned char* pub_out);
-	bool get_priv(unsigned char* pub, unsigned char* priv_out);
-	void new_machine(unsigned char* pub_out, bool root);
-	bool save_wasm(unsigned char* pub, unsigned char* wasm, int length);
-	unsigned char* get_wasm(unsigned char* pub, int* length);
+	bool get_pub(key_byte* id, key_byte* pub_out);
+	bool get_priv(key_byte* pub, key_byte* priv_out);
+	void new_machine(key_byte* pub_out, bool root);
+	void* get_wasm(key_byte* pub, int* length);
 	//TEMP/DEBUG:
-	void get_default_machine(unsigned char* pub_out);
+	void get_default_machine(key_byte* pub_out);
 	bool load_from_proto_file(const char* proto_path);
 	bool load_from_proto(cJSON* mach);
 }

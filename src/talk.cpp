@@ -52,7 +52,6 @@ bool send_comm(host_task* t){
 		send_identifier++;
 	}
 	//std::cerr<<"hostname: "<<hostname<<" identifier: "<<identifier<<"\n";
-	//TODO: PORT, ALIASES, CHAINING ETC.
 	//open socket:
 	int connection_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
 	fail_goto(connection_no >= 0);
@@ -197,8 +196,13 @@ bool run_talk_worker(int port){
 			comm_queue.release();
 			if(!send_comm(next)){
 				std::cerr<<"error sending comm\n";
-				//TODO: decrement retry count, or schedule on_failure
-				delete next;
+				if(next->retry_count++ < max_retries){
+					c = comm_queue.acquire();
+					c->push(next);
+					comm_queue.release();
+				}
+				else
+					delete next;
 			}
 		}
 		//poll for fresh incoming connections:

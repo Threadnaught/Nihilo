@@ -27,7 +27,7 @@ namespace recall{
 		if(!db->Get(readOptions, key, &out).ok())
 			return nullptr;
 		*datalen = out.length();
-		unsigned char* ret = new unsigned char[*datalen];
+		void* ret = new unsigned char[*datalen];
 		memcpy(ret, out.c_str(), *datalen);
 		return ret;
 	}
