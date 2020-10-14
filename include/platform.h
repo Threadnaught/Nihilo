@@ -31,7 +31,7 @@ namespace runtime{
 	bool init();
 	bool exec_task(host_task* t);
 }
-
+//Currently only supports root
 namespace intercepts{
 	struct intercept_param{
 		uint16_t length;
@@ -41,7 +41,6 @@ namespace intercepts{
 	struct intercept_func{
 		const char* name;
 		raw_intercept_func func;
-		//TODO: machine type (root etc.)
 	};
 	void register_intercepts(std::map<std::string, intercept_func>& map);
 }

@@ -68,7 +68,6 @@ bool send_comm(host_task* t){
 	char tgt_addr[20];
 	inet_ntop(AF_INET, &fresh_con.addr, tgt_addr, 15);
 	for(int i = 0; i < hosts.size(); i++){
-		//TODO: this hack is....ewww. Research why gethostbyname on one ip returns another.
 		char this_addr[20];
 		inet_ntop(AF_INET, &hosts[i].addr, this_addr, 20);
 		if((strcmp(this_addr, receiver_hostname)==0) || (fresh_con.addr.sin_addr.s_addr == hosts[i].addr.sin_addr.s_addr)){
@@ -251,11 +250,10 @@ bool run_talk_worker(int port){
 					read(hosts[i].fd, inbuf, crypto::calc_encrypted_size(hosts[i].waiting_packet.contents_length));
 					if(!receive_body(i, (unsigned char*)inbuf)){
 						std::cerr<<"receive failed\n";
-						//TODO: generic failure?
 						drop(i--);
 						continue;
 					}
-					delete inbuf;//TODO: do something with it
+					delete inbuf;
 					hosts[i].is_packet_waiting = false;
 					//std::cerr<<"extending (body)\n";
 					hosts[i].timeout = time(NULL) + con_timeout;
@@ -279,5 +277,5 @@ void talk::add_to_comm_queue(host_task* t){
 }
 
 void talk::init(int port){
-	run_talk_worker(port);//TODO: threading
+	run_talk_worker(port);
 }

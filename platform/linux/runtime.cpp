@@ -36,8 +36,6 @@ bool copy_sandbox_to_process_str_buffer(char* dest, int dest_len, wasm_module_in
 	return true;
 }
 
-//TODO: exit out of runtime in set_return??
-
 //API implementation:
 bool set_return(wasm_exec_env_t exec_env, int32_t success, uint32_t ret, int32_t ret_len){
 	//std::cerr<<"ret:"<<ret<<" ret length:"<<ret_len<<"\n";
