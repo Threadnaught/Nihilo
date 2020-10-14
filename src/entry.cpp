@@ -36,7 +36,7 @@ int main(int argc, char** argv){
 	fail_check(recall::init(db_path), -1);
 	fail_check(compute::init(), -1);
 	if(strlen(proto_path) > 0)
-		compute::load_from_proto(proto_path);
+		fail_check(compute::load_from_proto_file(proto_path), -1);
 	
 	if(strlen(ping_addr) > 0 && strlen(ping_from) > 0){
 		std::cerr<<"pinging "<<ping_addr<<" from "<<ping_from<<"\n";

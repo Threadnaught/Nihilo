@@ -10,6 +10,7 @@ void entry(char* arg){
 	uint32_t read_length;
 	//printf("%s\n", (char*)read_DB("test.yes", &read_length));
 	//printf("foo:%s\n", (char*)read_DB("foo", &read_length));
+	printf("hello\n");
 }
 void inner(char* arg){
 	printf("inner\n");

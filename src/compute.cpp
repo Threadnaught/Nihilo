@@ -4,7 +4,6 @@
 #include <pthread.h>
 #include <unistd.h>
 
-#include <cjson/cJSON.h>
 #include "../include/platform.h"
 
 thread::locker<std::queue<host_task*>> task_queue;
@@ -86,9 +85,9 @@ void* run_compute_worker(void* args){
 					if(strlen(t->t.on_success) > 0){
 						//if there is a return value, set it as the param, and if not call without
 						if(t->ret_len > 0){
-							compute::copy_to_queue(t->origin_addr, t->dest_addr, t->t.on_success, nullptr, nullptr, t->ret, t->ret_len);
+							compute::copy_to_queue(t->origin_addr, t->dest_addr, t->success?t->t.on_success:t->t.on_failure, nullptr, nullptr, t->ret, t->ret_len);
 						} else {
-							compute::copy_to_queue(t->origin_addr, t->dest_addr, t->t.on_success, nullptr, nullptr, nullptr, 0);
+							compute::copy_to_queue(t->origin_addr, t->dest_addr, t->success?t->t.on_success:t->t.on_failure, nullptr, nullptr, nullptr, 0);
 						}
 					}
 					delete_task(t);
@@ -285,48 +284,69 @@ bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char
 	}
 	return true;
 }
-//code to load machine from manifest file into
-bool compute::load_from_proto(const char* proto_path){
-	//move over working directory
+//messes with working dir, so only one thread can call this at any time
+std::recursive_mutex working_dir_mutex;
+bool compute::load_from_proto_file(const char* proto_path){
+	working_dir_mutex.lock();
 	char working_dir[512];
-	fail_false(getcwd(working_dir, sizeof(working_dir)) != nullptr);//this could be the source of problems on microcontrollers
-	fail_false(chdir(proto_path) != -1);
-	//load manifest:
+	char* data = nullptr;
+	cJSON* json = nullptr;
+	working_dir[0] = 0;
+	fail_goto(getcwd(working_dir, sizeof(working_dir)) != nullptr);//this could be the source of problems on microcontrollers
+	fail_goto(chdir(proto_path) != -1);
 	int len;
-	char* data = read_file("manifest.json", &len);
-	cJSON* json = cJSON_Parse(data);//TODO:non zero termination??????????
+	data = read_file("manifest.json", &len);
+	json = cJSON_Parse(data);
+	fail_goto(load_from_proto(json));
+	//cleanup on success
+	fail_goto(chdir(working_dir) != -1);
+	delete data;
+	cJSON_Delete(json);
+	working_dir_mutex.unlock();
+	return true;
+	//cleanup on fail:
+	fail:
+	std::cerr<<"fail\n";
+	if(data != nullptr)
+		delete data;
+	if(json != nullptr)
+		cJSON_Delete(json);
+	fail_false(chdir(working_dir) != -1);
+	working_dir_mutex.unlock();
+	return false;
+}
+//code to load machine from manifest file into
+bool compute::load_from_proto(cJSON* mach){
 	//find target machine:
-	cJSON* mach = cJSON_GetObjectItem(json, "target");
-	fail_false(mach != nullptr);
-	cJSON* mach_type = cJSON_GetObjectItem(mach, "type");
+	cJSON* target = cJSON_GetObjectItem(mach, "target");
+	fail_false(target != nullptr);
+	cJSON* mach_type = cJSON_GetObjectItem(target, "type");
 	bool targets_root = (mach_type != nullptr) && (mach_type->type == cJSON_String) && (strcmp(mach_type->valuestring, "root") == 0);
 	//TODO: add a way to specify the pub
 	fail_false(targets_root);//TODO: add a way to target non-root machines
 	auto machines = local_machines.acquire();
-	int target = -1;
+	int target_i = -1;
 	for(int i = 0; i < machines->size(); i++)
 		if((*machines)[i].root){
-			target = i;
+			target_i = i;
 			break;
 		}
 	
 	//TODO: create not currently existing machines
-	fail_false(target >= 0);
+	fail_false(target_i >= 0);
 	//check for reset_data:
 	char current_node_path[200];
-	bytes_to_hex((*machines)[target].keypair.ecc_pub, ecc_pub_size, current_node_path);
+	bytes_to_hex((*machines)[target_i].keypair.ecc_pub, ecc_pub_size, current_node_path);
 	char* cursor = current_node_path + strlen(current_node_path);
-	cJSON* reset_data = cJSON_GetObjectItem(json, "reset_data");
+	cJSON* reset_data = cJSON_GetObjectItem(mach, "reset_data");
 	if(reset_data != nullptr && reset_data->valueint == true){
 		strcpy(cursor, ".");
 		recall::delete_all_with_prefix(current_node_path);
 		*cursor = '\0';
 	}
 	//load data:
-	cJSON* mach_data = cJSON_GetObjectItem(json, "data");
+	cJSON* mach_data = cJSON_GetObjectItem(mach, "data");
 	fail_false(recurse_load_data(mach_data, current_node_path, cursor, current_node_path + sizeof(current_node_path)));
 	local_machines.release();
-	fail_false(chdir(working_dir) != -1);
-	//TODO: create cleanup GOTO (cJSON delete, reset working directory, memory cleanup)
 	return true;
 }

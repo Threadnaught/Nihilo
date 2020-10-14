@@ -4,6 +4,8 @@
 #include <mutex>
 #include <errno.h>
 
+#include <cjson/cJSON.h>
+
 //size in bytes len in chars
 
 #define ID_size 12
@@ -50,7 +52,7 @@ struct host_task{//task (full)
 	int ret_len = -1;
 	unsigned char* ret = nullptr;
 	short param_length = 0; //0 for no param
-	bool success = true;//TODO: make this meaninful in compute.cpp
+	bool success = true;
 	void* env_inst;
 	common_task t;
 };
@@ -92,7 +94,8 @@ namespace compute{
 	unsigned char* get_wasm(unsigned char* pub, int* length);
 	//TEMP/DEBUG:
 	void get_default_machine(unsigned char* pub_out);
-	bool load_from_proto(const char* proto_path);
+	bool load_from_proto_file(const char* proto_path);
+	bool load_from_proto(cJSON* mach);
 }
 
 namespace talk{
@@ -106,5 +109,6 @@ char* read_file(const char* path, int* length);
 
 #define fail_check(condition, bad_ret) if(!(condition)) {std::cerr<<"error "<<errno<<": "<<__func__<<"() line: "<<__LINE__<<" file: "<<__FILE__"\n"; return bad_ret;}
 #define fail_false(condition) fail_check(condition, false)
+#define fail_goto(condition) if(!(condition)) {std::cerr<<"error "<<errno<<": "<<__func__<<"() line: "<<__LINE__<<" file: "<<__FILE__"\n"; goto fail;}
 #define bytes_to_hex_array(name, bytes, len) char name[(len*2)+1]; bytes_to_hex(bytes, len, name);
 #define hex_to_bytes_array(name, str, len) unsigned char name[len]; hex_to_bytes(str, name);

@@ -17,7 +17,7 @@ thread::locker<std::queue<host_task*>> comm_queue;
 struct host{
 	int fd;
 	sockaddr_in addr; 
-	time_t timeout;//TODO
+	time_t timeout;
 	bool is_packet_waiting;
 	packet_header waiting_packet;
 	std::vector<machine> known_machines;
@@ -25,7 +25,16 @@ struct host{
 
 std::vector<host> hosts;
 
-bool send_comm(host_task* t){ //THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK WORKER THREAD
+//THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK WORKER THREAD
+bool send_comm(host_task* t){
+	unsigned char* unencrypted = nullptr;
+	unsigned char* encrypted = nullptr;
+	wire_task* wire = nullptr;
+	int encrypted_buffer_size = 0;
+	int unencrypted_buffer_size = 0;
+	hostent* target_ent = nullptr;
+	host fresh_con;
+	int host_index = -1;
 	//std::cerr<<"calling "<<t->t.function_name<<" on "<<t->dest_addr<<"\n";
 	//split hostname/machine identifier
 	char receiver_hostname[max_address_len];
@@ -46,12 +55,11 @@ bool send_comm(host_task* t){ //THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK W
 	//TODO: PORT, ALIASES, CHAINING ETC.
 	//open socket:
 	int connection_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-	fail_false(connection_no >= 0);
+	fail_goto(connection_no >= 0);
 	//DNS/IP lookup:
-	hostent* target_ent = gethostbyname(receiver_hostname);
-	fail_false(target_ent != nullptr);
+	target_ent = gethostbyname(receiver_hostname);
+	fail_goto(target_ent != nullptr);
 	//fresh_con ONLY USEFUL FOR A FRESH CONNECTION, USE host_index FOR EITHER A FOUND OR FRESH CONNECTION
-	host fresh_con;
 	memset(&fresh_con.addr, 0, sizeof(sockaddr_in));
 	fresh_con.addr.sin_family = AF_INET;
 	memcpy(&fresh_con.addr.sin_addr.s_addr, target_ent->h_addr_list[0], target_ent->h_length);
@@ -59,7 +67,6 @@ bool send_comm(host_task* t){ //THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK W
 	//check for already established connection:
 	char tgt_addr[20];
 	inet_ntop(AF_INET, &fresh_con.addr, tgt_addr, 15);
-	int host_index = -1;
 	for(int i = 0; i < hosts.size(); i++){
 		//TODO: this hack is....ewww. Research why gethostbyname on one ip returns another.
 		char this_addr[20];
@@ -72,7 +79,7 @@ bool send_comm(host_task* t){ //THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK W
 	}
 	//if there is no already established connection, connect
 	if(host_index == -1){
-		fail_false(connect(connection_no, (sockaddr*)&fresh_con.addr, sizeof(sockaddr_in)) >= 0);
+		fail_goto(connect(connection_no, (sockaddr*)&fresh_con.addr, sizeof(sockaddr_in)) >= 0);
 		fresh_con.fd = connection_no;
 		hosts.push_back(fresh_con);
 		host_index = hosts.size() - 1;
@@ -84,38 +91,45 @@ bool send_comm(host_task* t){ //THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK W
 	hex_to_bytes_array(receiver_pub, receive_identifier, ecc_pub_size);
 	hex_to_bytes_array(origin_pub, send_identifier, ecc_pub_size)
 	unsigned char sender_priv[ecc_priv_size];
-	fail_false(compute::get_priv(origin_pub, sender_priv));
+	fail_goto(compute::get_priv(origin_pub, sender_priv));
 	unsigned char secret[shared_secret_size];
-	fail_false(crypto::derrive_shared(sender_priv, receiver_pub, secret));
+	fail_goto(crypto::derrive_shared(sender_priv, receiver_pub, secret));
 	//construct and send header:
 	packet_header header;
 	memcpy(header.origin_pub, origin_pub, ecc_pub_size);
 	memcpy(header.dest_pub, receiver_pub, ecc_pub_size);
 	header.contents_length = sizeof(wire_task) + t->param_length;
-	fail_false(write(hosts[host_index].fd, (void*)&header, sizeof(packet_header)) >= 0);
+	fail_goto(write(hosts[host_index].fd, (void*)&header, sizeof(packet_header)) >= 0);
 	//std::cerr<<"wrote header\n";
 	//construct body:
-	int encrypted_buffer_size = crypto::calc_encrypted_size(header.contents_length);
+	encrypted_buffer_size = crypto::calc_encrypted_size(header.contents_length);
 	//rounded to the nearest block, but without IV
-	int unencrypted_buffer_size = encrypted_buffer_size - aes_block_size;
-	unsigned char* unencrypted = new unsigned char[unencrypted_buffer_size];
+	unencrypted_buffer_size = encrypted_buffer_size - aes_block_size;
+	unencrypted = new unsigned char[unencrypted_buffer_size];
 	//don't want to expose memory to peer
 	memset(unencrypted, 0, unencrypted_buffer_size);
-	wire_task* wire = (wire_task*)unencrypted;
+	wire = (wire_task*)unencrypted;
 	//copy over target id/task info/param
-	fail_false(crypto::id_from_pub(header.dest_pub, wire->target_ID));
+	fail_goto(crypto::id_from_pub(header.dest_pub, wire->target_ID));
 	memcpy(&wire->t, &t->t, sizeof(common_task));
 	if(t->param_length > 0)
 		memcpy(unencrypted+sizeof(wire_task), ((char*)t)+sizeof(host_task), t->param_length);
 	//encrypt and send body:
-	unsigned char* encrypted = new unsigned char[encrypted_buffer_size];
-	fail_false(crypto::encrypt(secret, unencrypted, unencrypted_buffer_size, encrypted));
-	fail_false(write(hosts[host_index].fd, encrypted, encrypted_buffer_size) >= 0);
+	encrypted = new unsigned char[encrypted_buffer_size];
+	fail_goto(crypto::encrypt(secret, unencrypted, unencrypted_buffer_size, encrypted));
+	fail_goto(write(hosts[host_index].fd, encrypted, encrypted_buffer_size) >= 0);
 	//memory cleanup:
 	delete encrypted;
-	delete unencrypted;//TODO: fix failure memory leak (maybe create a goto)
+	delete unencrypted;
 	delete t;
 	return true;
+	fail:
+	if(encrypted != nullptr)
+		delete encrypted;
+	if(unencrypted != nullptr)
+		delete unencrypted;
+	delete t;
+	return false;
 }
 
 void drop(int con_no){
