@@ -47,7 +47,6 @@ struct common_task{ //task on the wire
 	char on_failure[max_func_len];
 };
 struct host_task{//task (full)
-	//unsigned char origin_pub[ecc_pub_size];
 	char origin_addr[max_address_len];
 	char dest_addr[max_address_len];
 	int retry_count = 0;
@@ -58,7 +57,7 @@ struct host_task{//task (full)
 	void* env_inst;
 	common_task t;
 };
-//THIS NEEDS TO STAY IN THIS EXACT ORDER OR send_comm WILL ALL GET FUCKED
+
 struct wire_task{
 	unsigned char target_ID[ID_size];
 	common_task t;
