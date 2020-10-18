@@ -35,17 +35,17 @@ bool send_comm(host_task* t){
 	hostent* target_ent = nullptr;
 	host fresh_con;
 	int host_index = -1;
-	char receive_hostname[max_address_len];
-	fail_false(compute::get_address_ip_target(t->dest_addr, receive_hostname));
-	char receive_identifier[max_address_len];
-	fail_false(compute::get_address_machine_target(t->dest_addr, receive_identifier));
-	char send_identifier[max_address_len];
-	fail_false(compute::get_address_machine_target(t->origin_addr, send_identifier));
+	char receiver_hostname[max_address_len];
+	fail_false(compute::get_address_ip_target(t->dest_addr, receiver_hostname));
+	char receiver_identifier[max_address_len];
+	fail_false(compute::get_address_machine_target(t->dest_addr, receiver_identifier));
+	char sender_identifier[max_address_len];
+	fail_false(compute::get_address_machine_target(t->origin_addr, sender_identifier));
 	//open socket:
 	int connection_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
 	fail_goto(connection_no >= 0);
 	//DNS/IP lookup:
-	target_ent = gethostbyname(receive_hostname);
+	target_ent = gethostbyname(receiver_hostname);
 	fail_goto(target_ent != nullptr);
 	//fresh_con ONLY USEFUL FOR A FRESH CONNECTION, USE host_index FOR EITHER A FOUND OR FRESH CONNECTION
 	memset(&fresh_con.addr, 0, sizeof(sockaddr_in));
@@ -58,7 +58,7 @@ bool send_comm(host_task* t){
 	for(int i = 0; i < hosts.size(); i++){
 		char this_addr[20];
 		inet_ntop(AF_INET, &hosts[i].addr, this_addr, 20);
-		if((strcmp(this_addr, receive_hostname)==0) || (fresh_con.addr.sin_addr.s_addr == hosts[i].addr.sin_addr.s_addr)){
+		if((strcmp(this_addr, receiver_hostname)==0) || (fresh_con.addr.sin_addr.s_addr == hosts[i].addr.sin_addr.s_addr)){
 			//std::cerr<<"found!\n";
 			host_index = i;
 			break;
@@ -75,11 +75,11 @@ bool send_comm(host_task* t){
 	//reset timeout:
 	hosts[host_index].timeout = time(NULL) + con_timeout;
 	//derrive shared secret:
-	if(receive_identifier[0] != '~'){
+	if(receiver_identifier[0] != '~'){
 		std::cerr<<"destination pubkey must be currently specified\n"; //(TODO)
 		fail_false(false);
 	}
-	hex_to_bytes_array(receiver_pub, receive_identifier+1, ecc_pub_size);
+	hex_to_bytes_array(receiver_pub, receiver_identifier+1, ecc_pub_size);
 	unsigned char origin_pub[ecc_pub_size];
 	fail_false(compute::resolve_local_machine(t->origin_addr, origin_pub));
 	unsigned char send_priv[ecc_priv_size];
