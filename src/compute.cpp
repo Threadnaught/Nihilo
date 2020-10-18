@@ -15,10 +15,13 @@ struct pub_key{
 bool operator< (const pub_key k1, const pub_key k2){
 	return memcmp(k1.key, k2.key, ecc_pub_size) < 0;
 }
+pub_key pub_conv(unsigned char* p){
+	return *(pub_key*)p;
+}
 
 thread::locker<std::queue<host_task*>> task_queue;
-thread::locker<std::map<pub_key, machine>> local_machines;//TODO: remove _new
-unsigned char root_pub[ecc_pub_size];
+thread::locker<std::map<pub_key, machine>> local_machines;
+std::map<std::string, pub_key> local_name_index; //shares local_machines locker (TODO: create struct to lock both in the same locker)
 std::map<std::string, intercepts::intercept_func> platform_intercepts;
 
 void delete_task(host_task* t){
@@ -38,7 +41,7 @@ bool compute::init(){
 		unsigned char c;
 		recall::write("machines_table", &c, 0);
 		unsigned char new_pub[ecc_pub_size];
-		new_machine(new_pub, true);
+		new_machine("root", new_pub);
 		table = (unsigned char*)recall::read("machines_table", &table_len);
 	}
 	//std::cerr<<"table size: "<<table_len<<"\n";
@@ -50,11 +53,8 @@ bool compute::init(){
 		std::cerr<<"loading machine "<<pub_hex<<"\n";
 		machine* m = (machine*)recall::read(pub_hex, &m_len);
 		fail_false(m_len == sizeof(machine));
-		//locals->push_back(*m);
-		(*locals)[*(pub_key*)(table+i)] = *m;
-		if(locals->size() == 1){//first machine, clearly the root TODO: create a db-wide config and make this more better
-			memcpy(root_pub, m->keypair.ecc_pub, ecc_pub_size);
-		}
+		(*locals)[pub_conv(table+i)] = *m;
+		local_name_index[m->name] = pub_conv(m->keypair.ecc_pub);
 	}
 	local_machines.release();
 	delete table;
@@ -67,7 +67,9 @@ bool handle_individual_task(host_task* t){
 	fail_false(compute::resolve_local_machine(t->dest_addr, dest_pub));
 	//check if this call is intercepted
 	auto found = platform_intercepts.find(t->t.function_name);
-	if(memcmp(root_pub, dest_pub, ecc_pub_size) == 0 && found != platform_intercepts.end()){//check for intercepts
+	unsigned char root[ecc_pub_size];
+	compute::get_root_machine(root);
+	if(memcmp(root, dest_pub, ecc_pub_size) == 0 && found != platform_intercepts.end()){//check for intercepts
 		(*(found->second.func))({0, nullptr});
 		return true;
 	} else 
@@ -141,7 +143,7 @@ bool compute::get_pub(unsigned char* id, unsigned char* pub_out){
 bool compute::get_priv(unsigned char* pub, unsigned char* priv_out){
 	//this O(log N) comparison no longer brings pain to my soul or shame to my descendents
 	auto m = local_machines.acquire();
-	auto it = m->find(*(pub_key*)pub);
+	auto it = m->find(pub_conv(pub));
 	if(it == m->end()){
 		local_machines.release();
 		return false;	
@@ -150,18 +152,17 @@ bool compute::get_priv(unsigned char* pub, unsigned char* priv_out){
 	local_machines.release();
 	return true;
 }
-void compute::new_machine(unsigned char* pub_out, bool root){
+void compute::new_machine(const char* name, unsigned char* pub_out){
 	//gen keypair:
 	unsigned char priv[ecc_priv_size];
 	crypto::gen_ecdh_keypair(pub_out, priv);
 	//fill out machine:
 	machine m;
-	m.root = root;
 	memcpy(m.keypair.ecc_pub, pub_out, ecc_pub_size);
 	memcpy(m.keypair.ecc_priv, priv, ecc_priv_size);
-	//add to array:
-	(*local_machines.acquire())[*(pub_key*)m.keypair.ecc_pub] = m;
-	local_machines.release();
+	memset(m.name, 0, max_name_len);
+	if(name != nullptr)
+		strncpy(m.name, name, max_name_len);
 	//save to database:
 	recall::acquire_lock();
 	//save pub to table:
@@ -176,6 +177,11 @@ void compute::new_machine(unsigned char* pub_out, bool root){
 	std::cerr<<"created machine:"<<pub_hex<<"\n";
 	free(table);
 	recall::release_lock();
+
+	//add to array:
+	(*local_machines.acquire())[pub_conv(m.keypair.ecc_pub)] = m;
+	local_name_index[name] = pub_conv(m.keypair.ecc_pub);
+	local_machines.release();
 }
 
 void* compute::get_wasm(unsigned char* pub, int* length){
@@ -187,9 +193,10 @@ void* compute::get_wasm(unsigned char* pub, int* length){
 	recall::release_lock();
 	return wasm_data;
 }
-//TODO: get rid of this
-void compute::get_default_machine(unsigned char* pub_out){
-	memcpy(pub_out, root_pub, ecc_pub_size);
+void compute::get_root_machine(unsigned char* pub_out){
+	local_machines.acquire();
+	memcpy(pub_out, local_name_index["root"].key, ecc_pub_size);
+	local_machines.release();
 }
 bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char* limit){
 	//get first child:
@@ -302,10 +309,11 @@ bool compute::load_from_proto(cJSON* mach){
 	bool targets_root = (mach_type != nullptr) && (mach_type->type == cJSON_String) && (strcmp(mach_type->valuestring, "root") == 0);
 	//TODO: add a way to specify the pub
 	fail_false(targets_root);//TODO: add a way to target non-root machines
-	auto machines = local_machines.acquire();
 	//TODO: create not currently existing machines
 	//check for reset_data:
 	char current_node_path[200];
+	unsigned char root_pub[ecc_pub_size];
+	compute::get_root_machine(root_pub);
 	bytes_to_hex(root_pub, ecc_pub_size, current_node_path);
 	char* cursor = current_node_path + strlen(current_node_path);
 	cJSON* reset_data = cJSON_GetObjectItem(mach, "reset_data");
@@ -317,6 +325,8 @@ bool compute::load_from_proto(cJSON* mach){
 	//load data:
 	cJSON* mach_data = cJSON_GetObjectItem(mach, "data");
 	fail_false(recurse_load_data(mach_data, current_node_path, cursor, current_node_path + sizeof(current_node_path)));
+	auto machines = local_machines.acquire();
+	//TODO: modify local_machines etc.
 	local_machines.release();
 	return true;
 }
@@ -355,7 +365,7 @@ bool compute::resolve_local_machine(const char* address, unsigned char* target_p
 			bytes_to_hex_array(hhh, tgt_pub, ecc_pub_size);
 			auto ms = local_machines.acquire();
 			bool found = false;
-			auto it = ms->find(*(pub_key*)tgt_pub);
+			auto it = ms->find(pub_conv(tgt_pub));
 			if(it != ms->end()){
 				found = true;
 				memcpy(target_pub_out, tgt_pub, ecc_pub_size);

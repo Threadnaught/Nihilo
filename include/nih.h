@@ -28,7 +28,6 @@ struct machine_keypair{
 
 struct machine{
 	char name[max_name_len];
-	bool root;
 	machine_keypair keypair;
 };
 
@@ -89,9 +88,9 @@ namespace compute{
 	bool copy_to_queue(const char* dest_addr, const char* origin_addr, const char* function_name, const char* on_success, const char* on_failure, const void* param, int paramlen);
 	bool get_pub(unsigned char* id, unsigned char* pub_out);
 	bool get_priv(unsigned char* pub, unsigned char* priv_out);
-	void new_machine(unsigned char* pub_out, bool root);
+	void new_machine(const char* name, unsigned char* pub_out);
 	void* get_wasm(unsigned char* pub, int* length);
-	void get_default_machine(unsigned char* pub_out); //(TEMP/DEBUG)
+	void get_root_machine(unsigned char* pub_out); //(TEMP/DEBUG)
 	bool load_from_proto_file(const char* proto_path);
 	bool load_from_proto(cJSON* mach);
 	bool get_address_ip_target(const char* address, char* ip_target_out);//get IP/DNS/hostname from nih address

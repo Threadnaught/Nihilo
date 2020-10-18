@@ -41,7 +41,7 @@ int main(int argc, char** argv){
 	//TODO: convert to #root
 	char root_addr[(ecc_pub_size*2)+2];
 	root_addr[0] = '~';
-	compute::get_default_machine(root_pub);
+	compute::get_root_machine(root_pub);
 	bytes_to_hex(root_pub, ecc_pub_size, root_addr+1);
 	if(entry){
 		strcpy(ping_addr, root_addr);
