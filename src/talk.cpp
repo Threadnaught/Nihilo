@@ -142,15 +142,17 @@ bool receive_body(int hostid, unsigned char* body){
 	unsigned char* unencrypted = new unsigned char[unencrypted_buffer_size];
 	fail_false(crypto::decrypt(secret, body, unencrypted_buffer_size, unencrypted));
 	wire_task* t = (wire_task*)unencrypted;
-	//verify ID decodes correctly (so entire packet decodes)
+	//verify ID decodes correctly (so entire packet decodes) TODO TODO TODO
 	unsigned char target_ID[ID_size];
 	crypto::id_from_pub(hosts[hostid].waiting_packet.dest_pub, target_ID);
 	//fail_false(memcmp(target_ID, t->target_ID, ID_size)==0);
 	bytes_to_hex_array(received_hex, t->target_ID, ID_size);
 	bytes_to_hex_array(target_hex, target_ID, ID_size);
+	//construct request on this side
 	char dest_addr[max_address_len];
 	dest_addr[0] = '~';
 	bytes_to_hex(hosts[hostid].waiting_packet.dest_pub, ecc_pub_size, dest_addr+1);
+	//if there is a parameter, attach it to the task
 	int paramlen = hosts[hostid].waiting_packet.contents_length-sizeof(wire_task);
 	unsigned char* param = paramlen==0?nullptr:unencrypted+sizeof(wire_task);
 	char origin_addr[max_address_len];

@@ -114,7 +114,7 @@ bool compute::copy_to_queue(const char* dest_addr, const char* origin_addr, cons
 	t->param_length = paramlen;
 	if(paramlen > 0) memcpy((t+1), param, paramlen);
 	//is target machine on this host?
-	if(compute::get_address_ip_target(t->dest_addr, nullptr))//if address requires comms
+	if(compute::get_address_ip_target(t->dest_addr, nullptr))//if address requires network, add to the comm queue
 	{
 		talk::add_to_comm_queue(t);
 		return true;
