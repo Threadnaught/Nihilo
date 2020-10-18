@@ -18,6 +18,7 @@
 #define max_packet_size 512
 #define max_func_len 20
 #define max_address_len 100
+#define max_name_len 32
 #define max_retries 3
 
 struct machine_keypair{
@@ -26,7 +27,7 @@ struct machine_keypair{
 };
 
 struct machine{
-	unsigned char ID[ID_size];
+	char name[max_name_len];
 	bool root;
 	machine_keypair keypair;
 };
