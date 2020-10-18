@@ -15,7 +15,7 @@ int main(int argc, char** argv){
 	fail_check(recall::init(db_path), -1);
 	fail_check(compute::init(), -1);
 	bool entry = false;
-	while((opt = getopt(argc, argv, "d:m:p:f:e")) != -1){//-d database path -w wasm path -p ping address
+	while((opt = getopt(argc, argv, "d:m:p:f:e")) != -1){//-d database path -m machine path -p ping address -f ping from -e run entry on this host's root
 		switch(opt){
 			case 'd':
 				strncpy(db_path, optarg, 99);
@@ -37,17 +37,18 @@ int main(int argc, char** argv){
 				return 1;
 		}
 	}
-
 	unsigned char root_pub[ecc_pub_size];
-	char root_hex[(ecc_pub_size*2)+1];
+	//TODO: convert to #root
+	char root_addr[(ecc_pub_size*2)+2];
+	root_addr[0] = '~';
 	compute::get_default_machine(root_pub);
-	bytes_to_hex(root_pub, ecc_pub_size, root_hex);
+	bytes_to_hex(root_pub, ecc_pub_size, root_addr+1);
 	if(entry){
-		strcpy(ping_addr, root_hex);
+		strcpy(ping_addr, root_addr);
 	}
 	if(strlen(ping_addr) > 0){
 		if(strlen(ping_from) == 0){
-			strcpy(ping_from, root_hex);
+			strcpy(ping_from, root_addr);
 		}
 		std::cerr<<"pinging "<<ping_addr<<" from "<<ping_from<<"\n";
 		const char* param = "hello, world!";

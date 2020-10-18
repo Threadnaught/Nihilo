@@ -2,7 +2,8 @@
 	"target":{
 		"type":"root",
 		"pub":"TODO:ADD PUB TARGETING",
-		"priv":"TODO: ADD MACHINE CREATION"
+		"priv":"TODO: ADD MACHINE CREATION",
+		"name":"TODO: ADD MACHINE NAMING"
 	},
 	"reset_data":true,
 	"data":{

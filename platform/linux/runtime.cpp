@@ -88,12 +88,9 @@ bool write_DB(wasm_exec_env_t exec_env, uint32_t path, uint32_t to_write, uint32
 	fail_false(write_length < 1000);
 	host_task* t = (host_task*)wasm_runtime_get_user_data(exec_env);
 	char tgt_path[200];
-	char* this_pub = strstr(t->dest_addr, "~");
-	if(this_pub == nullptr)
-		this_pub = t->dest_addr;
-	else
-		this_pub++;
-	strcpy(tgt_path, this_pub);
+	unsigned char* this_pub_bytes;
+	fail_false(compute::resolve_local_machine(t->dest_addr, this_pub_bytes));
+	bytes_to_hex(this_pub_bytes, ecc_pub_size, tgt_path);
 	strcpy(tgt_path+strlen(tgt_path), ".");
 	fail_false(copy_sandbox_to_process_str_buffer(tgt_path+strlen(tgt_path), sizeof(tgt_path)-strlen(tgt_path), (wasm_module_inst_t)t->env_inst, path))
 	unsigned char* to_write_process = new unsigned char[write_length];
@@ -107,12 +104,9 @@ bool write_DB(wasm_exec_env_t exec_env, uint32_t path, uint32_t to_write, uint32
 uint32_t read_DB(wasm_exec_env_t exec_env, uint32_t path, uint32_t read_length){
 	host_task* t = (host_task*)wasm_runtime_get_user_data(exec_env);
 	char tgt_path[200];
-	char* this_pub = strstr(t->dest_addr, "~");
-	if(this_pub == nullptr)
-		this_pub = t->dest_addr;
-	else
-		this_pub++;
-	strcpy(tgt_path, this_pub);
+	unsigned char* this_pub_bytes;
+	fail_false(compute::resolve_local_machine(t->dest_addr, this_pub_bytes));
+	bytes_to_hex(this_pub_bytes, ecc_pub_size, tgt_path);
 	strcpy(tgt_path+strlen(tgt_path), ".");
 	fail_false(copy_sandbox_to_process_str_buffer(tgt_path+strlen(tgt_path), sizeof(tgt_path)-strlen(tgt_path), (wasm_module_inst_t)t->env_inst, path))
 	recall::acquire_lock();
@@ -162,9 +156,11 @@ bool runtime::init(){
 	return true;
 }
 bool runtime::exec_task(host_task* t){
-	hex_to_bytes_array(target_pub, t->dest_addr, ecc_pub_size);
+	unsigned char target_pub[ecc_pub_size];
+	fail_false(compute::resolve_local_machine(t->dest_addr, target_pub));
 	int buf_len;
 	void* buf = compute::get_wasm(target_pub, &buf_len);
+	fail_false(buf != nullptr);
 	char error_buf[128];
 	error_buf[0] = 0;
 	wasm_module_t mod = wasm_runtime_load((unsigned char*)buf, buf_len, error_buf, sizeof(error_buf));

@@ -20,8 +20,6 @@
 #define max_address_len 100
 #define max_retries 3
 
-typedef unsigned char key_byte;
-
 struct machine_keypair{
 	unsigned char ecc_pub[ecc_pub_size];
 	unsigned char ecc_priv[ecc_priv_size];
@@ -53,7 +51,7 @@ struct host_task{//task (full)
 	int ret_len = -1;
 	void* ret = nullptr;
 	short param_length = 0; //0 for no param
-	bool success = true;
+	bool success = true; //TODO: debug where this gets reset during execution??
 	void* env_inst;
 	common_task t;
 };
@@ -88,14 +86,16 @@ namespace compute{
 	bool init();
 	bool launch_threads(int thread_count);
 	bool copy_to_queue(const char* dest_addr, const char* origin_addr, const char* function_name, const char* on_success, const char* on_failure, const void* param, int paramlen);
-	bool get_pub(key_byte* id, key_byte* pub_out);
-	bool get_priv(key_byte* pub, key_byte* priv_out);
-	void new_machine(key_byte* pub_out, bool root);
-	void* get_wasm(key_byte* pub, int* length);
-	//TEMP/DEBUG:
-	void get_default_machine(key_byte* pub_out);
+	bool get_pub(unsigned char* id, unsigned char* pub_out);
+	bool get_priv(unsigned char* pub, unsigned char* priv_out);
+	void new_machine(unsigned char* pub_out, bool root);
+	void* get_wasm(unsigned char* pub, int* length);
+	void get_default_machine(unsigned char* pub_out); //(TEMP/DEBUG)
 	bool load_from_proto_file(const char* proto_path);
 	bool load_from_proto(cJSON* mach);
+	bool get_address_ip_target(const char* address, char* ip_target_out);//get IP/DNS/hostname from nih address
+	bool get_address_machine_target(const char* address, char* machine_target_out);//get machine pub/name from nih address, including first char
+	bool resolve_local_machine(const char* address, unsigned char* target_pub_out);
 }
 
 namespace talk{
@@ -103,8 +103,8 @@ namespace talk{
 	void add_to_comm_queue(host_task* t);
 }
 
-void bytes_to_hex(unsigned char* bytes, int bytes_len, char* hexbuffer);
-void hex_to_bytes(char* hexbuffer, unsigned char* bytes);
+void bytes_to_hex(const unsigned char* bytes, int bytes_len, char* hexbuffer);
+void hex_to_bytes(const char* hexbuffer, unsigned char* bytes);
 char* read_file(const char* path, int* length);
 
 #define fail_check(condition, bad_ret) if(!(condition)) {std::cerr<<"error "<<errno<<": "<<__func__<<"() line: "<<__LINE__<<" file: "<<__FILE__"\n"; return bad_ret;}

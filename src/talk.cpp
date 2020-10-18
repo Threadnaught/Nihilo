@@ -35,28 +35,17 @@ bool send_comm(host_task* t){
 	hostent* target_ent = nullptr;
 	host fresh_con;
 	int host_index = -1;
-	//std::cerr<<"calling "<<t->t.function_name<<" on "<<t->dest_addr<<"\n";
-	//split hostname/machine identifier
-	char receiver_hostname[max_address_len];
-	memcpy(receiver_hostname, t->dest_addr, max_address_len);
-	char* receive_identifier = strstr(receiver_hostname, "~");
-	receive_identifier[0] = '\0';
-	receive_identifier++;
-	char sender_hostname[max_address_len];
-	memcpy(sender_hostname, t->origin_addr, max_address_len);
-	char* send_identifier = strstr(sender_hostname, "~");
-	if(send_identifier == nullptr)
-		send_identifier = sender_hostname;
-	else {
-		send_identifier[0] = '\0';
-		send_identifier++;
-	}
-	//std::cerr<<"hostname: "<<hostname<<" identifier: "<<identifier<<"\n";
+	char receive_hostname[max_address_len];
+	fail_false(compute::get_address_ip_target(t->dest_addr, receive_hostname));
+	char receive_identifier[max_address_len];
+	fail_false(compute::get_address_machine_target(t->dest_addr, receive_identifier));
+	char send_identifier[max_address_len];
+	fail_false(compute::get_address_machine_target(t->origin_addr, send_identifier));
 	//open socket:
 	int connection_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
 	fail_goto(connection_no >= 0);
 	//DNS/IP lookup:
-	target_ent = gethostbyname(receiver_hostname);
+	target_ent = gethostbyname(receive_hostname);
 	fail_goto(target_ent != nullptr);
 	//fresh_con ONLY USEFUL FOR A FRESH CONNECTION, USE host_index FOR EITHER A FOUND OR FRESH CONNECTION
 	memset(&fresh_con.addr, 0, sizeof(sockaddr_in));
@@ -69,7 +58,7 @@ bool send_comm(host_task* t){
 	for(int i = 0; i < hosts.size(); i++){
 		char this_addr[20];
 		inet_ntop(AF_INET, &hosts[i].addr, this_addr, 20);
-		if((strcmp(this_addr, receiver_hostname)==0) || (fresh_con.addr.sin_addr.s_addr == hosts[i].addr.sin_addr.s_addr)){
+		if((strcmp(this_addr, receive_hostname)==0) || (fresh_con.addr.sin_addr.s_addr == hosts[i].addr.sin_addr.s_addr)){
 			//std::cerr<<"found!\n";
 			host_index = i;
 			break;
@@ -86,12 +75,17 @@ bool send_comm(host_task* t){
 	//reset timeout:
 	hosts[host_index].timeout = time(NULL) + con_timeout;
 	//derrive shared secret:
-	hex_to_bytes_array(receiver_pub, receive_identifier, ecc_pub_size);
-	hex_to_bytes_array(origin_pub, send_identifier, ecc_pub_size)
-	unsigned char sender_priv[ecc_priv_size];
-	fail_goto(compute::get_priv(origin_pub, sender_priv));
+	if(receive_identifier[0] != '~'){
+		std::cerr<<"destination pubkey must be currently specified\n"; //(TODO)
+		fail_false(false);
+	}
+	hex_to_bytes_array(receiver_pub, receive_identifier+1, ecc_pub_size);
+	unsigned char origin_pub[ecc_pub_size];
+	fail_false(compute::resolve_local_machine(t->origin_addr, origin_pub));
+	unsigned char send_priv[ecc_priv_size];
+	fail_goto(compute::get_priv(origin_pub, send_priv));
 	unsigned char secret[shared_secret_size];
-	fail_goto(crypto::derrive_shared(sender_priv, receiver_pub, secret));
+	fail_goto(crypto::derrive_shared(send_priv, receiver_pub, secret));
 	//construct and send header:
 	packet_header header;
 	memcpy(header.origin_pub, origin_pub, ecc_pub_size);
@@ -154,7 +148,9 @@ bool receive_body(int hostid, unsigned char* body){
 	//fail_false(memcmp(target_ID, t->target_ID, ID_size)==0);
 	bytes_to_hex_array(received_hex, t->target_ID, ID_size);
 	bytes_to_hex_array(target_hex, target_ID, ID_size);
-	bytes_to_hex_array(dest_addr, hosts[hostid].waiting_packet.dest_pub, ecc_pub_size);
+	char dest_addr[max_address_len];
+	dest_addr[0] = '~';
+	bytes_to_hex(hosts[hostid].waiting_packet.dest_pub, ecc_pub_size, dest_addr+1);
 	int paramlen = hosts[hostid].waiting_packet.contents_length-sizeof(wire_task);
 	unsigned char* param = paramlen==0?nullptr:unencrypted+sizeof(wire_task);
 	char origin_addr[max_address_len];

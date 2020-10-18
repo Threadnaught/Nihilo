@@ -6,11 +6,11 @@ int crypto::calc_encrypted_size(int bodylen){//Round up to the nearest block siz
 	return (blockno + 1) * aes_block_size;
 }
 
-void bytes_to_hex(unsigned char* bytes, int bytes_len, char* hexbuffer){
+void bytes_to_hex(const unsigned char* bytes, int bytes_len, char* hexbuffer){
 	for(int i = 0; i < bytes_len; i++)
 		snprintf(hexbuffer + (i*2), 3, "%02X", bytes[i]);
 }
-void hex_to_bytes(char* hexbuffer, unsigned char* bytes){
+void hex_to_bytes(const char* hexbuffer, unsigned char* bytes){
 	for(int i = 0; i < strlen(hexbuffer)/2; i++){
 		unsigned int val;
 		sscanf(hexbuffer + (i*2), "%02X", &val);

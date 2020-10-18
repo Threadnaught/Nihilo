@@ -7,7 +7,7 @@
 #include "../include/platform.h"
 
 thread::locker<std::queue<host_task*>> task_queue;
-thread::locker<std::vector<machine>> local_machines;
+thread::locker<std::vector<machine>> local_machines; //TODO: create map(s) for efficency
 unsigned char root_pub[ecc_pub_size];
 std::map<std::string, intercepts::intercept_func> platform_intercepts;
 
@@ -51,6 +51,17 @@ bool compute::init(){
 	//std::cerr<<"intercepts:"<<platform_intercepts.size()<<"\n";
 	return true;
 }
+bool handle_individual_task(host_task* t){
+	unsigned char dest_pub[ecc_pub_size];
+	fail_false(compute::resolve_local_machine(t->dest_addr, dest_pub));
+	//check if this call is intercepted
+	auto found = platform_intercepts.find(t->t.function_name);
+	if(memcmp(root_pub, dest_pub, ecc_pub_size) == 0 && found != platform_intercepts.end()){//check for intercepts
+		(*(found->second.func))({0, nullptr});
+		return true;
+	} else 
+		return runtime::exec_task(t);
+}
 //loops checking for a task at the front of the queue, and exec
 void* run_compute_worker(void* args){
 	while(1){
@@ -63,45 +74,13 @@ void* run_compute_worker(void* args){
 		}
 		task_queue.release();
 		if(t!=nullptr){
-			//FIRST: check if this call is intercepted
-			//this behaviour is duplicated in exec_task
-			//TODO: move all this shit to host_task init
-			char* dest_pub = t->dest_addr;
-			if(strstr(dest_pub, "~") != nullptr){
-				dest_pub = strstr(dest_pub, "~")+1;
+			bool success = handle_individual_task(t);
+			const char* call_now = success && t->success?t->t.on_success:t->t.on_failure;
+			if(strlen(call_now) > 0){
+				void* param = t->ret_len>0?t->ret:nullptr;
+				compute::copy_to_queue(t->origin_addr, t->dest_addr, call_now, nullptr, nullptr, param, t->ret_len);
 			}
-			hex_to_bytes_array(dest_pub_bytes, dest_pub, ecc_pub_size);
-			auto found = platform_intercepts.find(t->t.function_name);
-			//std::cerr<<"fname:"<<platform_intercepts.size()<<"\n";
-
-			if(memcmp(root_pub, dest_pub_bytes, ecc_pub_size) == 0 && found != platform_intercepts.end()){//check for intercepts
-				(*(found->second.func))({0, nullptr});
-				delete_task(t);
-			} else {
-				//SECOND: If this call is not intercepted, go through normal call
-				if(runtime::exec_task(t)){
-					//std::cerr<<"successful\n";
-					//if there is a on_success event, copy to the queue
-					if(strlen(t->t.on_success) > 0){
-						//if there is a return value, set it as the param, and if not call without
-						if(t->ret_len > 0){
-							compute::copy_to_queue(t->origin_addr, t->dest_addr, t->success?t->t.on_success:t->t.on_failure, nullptr, nullptr, t->ret, t->ret_len);
-						} else {
-							compute::copy_to_queue(t->origin_addr, t->dest_addr, t->success?t->t.on_success:t->t.on_failure, nullptr, nullptr, nullptr, 0);
-						}
-					}
-					delete_task(t);
-				} else {
-					if(++t->retry_count >= max_retries){
-						if(strlen(t->t.on_failure) > 0)
-							compute::copy_to_queue(t->origin_addr, t->dest_addr, t->t.on_failure, nullptr, nullptr, nullptr, 0);
-						delete_task(t);
-					} else {
-						task_queue.acquire()->push(t);
-						task_queue.release();
-					}
-				}
-			}
+			delete_task(t);
 		}
 		else
 			usleep(1000);
@@ -135,7 +114,7 @@ bool compute::copy_to_queue(const char* dest_addr, const char* origin_addr, cons
 	t->param_length = paramlen;
 	if(paramlen > 0) memcpy((t+1), param, paramlen);
 	//is target machine on this host?
-	if(strstr(dest_addr, "~") != nullptr || strstr(dest_addr, "@") != nullptr)//if address contains
+	if(compute::get_address_ip_target(t->dest_addr, nullptr))//if address requires comms
 	{
 		talk::add_to_comm_queue(t);
 		return true;
@@ -180,13 +159,13 @@ void compute::new_machine(unsigned char* pub_out, bool root){
 	int table_len;
 	void* table = recall::read("machines_table", &table_len);
 	table = realloc(table, table_len+ecc_pub_size);
-	memcpy(table+table_len, pub_out, ecc_pub_size);
+	memcpy(((char*)table)+table_len, pub_out, ecc_pub_size);
 	recall::write("machines_table", table, table_len+ecc_pub_size);
 	//save machine
 	bytes_to_hex_array(pub_hex, pub_out, ecc_pub_size);
 	recall::write(pub_hex, &m, sizeof(machine));
 	std::cerr<<"created machine:"<<pub_hex<<"\n";
-	delete table;
+	free(table);
 	recall::release_lock();
 }
 
@@ -340,4 +319,57 @@ bool compute::load_from_proto(cJSON* mach){
 	fail_false(recurse_load_data(mach_data, current_node_path, cursor, current_node_path + sizeof(current_node_path)));
 	local_machines.release();
 	return true;
+}
+int locate_address_pivot(const char* address){
+	const char* pivot;
+	if((pivot = strstr(address, "~")) != nullptr)
+		return pivot - address;
+	if((pivot = strstr(address, "#")) != nullptr)
+		return pivot - address;
+	return -1;
+}
+bool compute::get_address_ip_target(const char* address, char* ip_target_out){
+	int pivot = locate_address_pivot(address);
+	fail_false(pivot > -1); //if pivot is -1, it does not have pivot char
+	if(pivot == 0)
+		return false;//if pivot is at 0, it is not an error but there is no ip target
+	if(ip_target_out != nullptr){
+		memcpy(ip_target_out, address, pivot);
+		ip_target_out[pivot] = '\0';
+	}
+	return true;
+}
+bool compute::get_address_machine_target(const char* address, char* machine_target_out){
+	int pivot = locate_address_pivot(address);
+	fail_false(pivot > -1);
+	strncpy(machine_target_out, address + pivot, max_address_len - pivot);
+	return true;
+}
+bool compute::resolve_local_machine(const char* address, unsigned char* target_pub_out){
+	char machine_target[max_address_len];
+	fail_false(get_address_machine_target(address, machine_target));
+	switch (machine_target[0]){
+		case '~':{
+			unsigned char tgt_pub[ecc_pub_size];
+			hex_to_bytes(machine_target+1, tgt_pub);
+			bytes_to_hex_array(hhh, tgt_pub, ecc_pub_size);
+			auto ms = local_machines.acquire();
+			bool found = false;
+			for(int i = 0; i < ms->size(); i++){
+				if(memcmp((*ms)[i].keypair.ecc_pub, tgt_pub, ecc_pub_size) == 0){
+					found = true;
+					memcpy(target_pub_out, tgt_pub, ecc_pub_size);
+					break;
+				}
+			}
+			local_machines.release();
+			return found;
+		}
+		case '#':{
+			std::cerr<<"name-based resolution not yet supported\n";
+			return false;
+		}
+	}
+	std::cerr<<"unrecognised leading char:"<<machine_target[0];
+	return false;
 }

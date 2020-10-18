@@ -24,6 +24,7 @@ namespace recall{
 		*datalen = 0;
 		leveldb::ReadOptions readOptions;
 		std::string out;
+		//std::cerr<<"reading "<<key<<"\n";
 		if(!db->Get(readOptions, key, &out).ok())
 			return nullptr;
 		*datalen = out.length();

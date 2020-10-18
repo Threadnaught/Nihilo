@@ -6,8 +6,17 @@
 #include "../../include/api.h"
 
 void entry(char* arg){
-	queue("nihilo_host~195734F260E4E4782B432F9A71A6EB69EA4EE821D9D72FDC4C68F227F3D54D1C", "test", NULL, NULL, NULL, 0);
+	const char* test = "patrick";
+	queue("pinger~0FF1E3D571F304E391888F6A9E72BE68588B7B6273A540CBB02F5C52A3EEF99E", "test", "success", "failure", test, strlen(test)+1);
+	printf("entry\n");
 }
 void test(char* arg){
-	printf("hello, there!\n");
+	printf("hello, %s\n", arg);
+	set_return(1, "test", 5);
+}
+void success(char* arg){
+	printf("success, %s\n", arg);
+}
+void failure(char* arg){
+	printf("failure, %s\n", arg);
 }
