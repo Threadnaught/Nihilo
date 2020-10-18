@@ -78,7 +78,7 @@ namespace thread{
 			}
 		private:
 			T contains;
-			std::mutex mutex;
+			std::recursive_mutex mutex;
 	};
 }
 
