@@ -374,8 +374,11 @@ bool compute::resolve_local_machine(const char* address, unsigned char* target_p
 			return found;
 		}
 		case '#':{
-			std::cerr<<"name-based resolution not yet supported\n";
-			return false;
+			local_machines.acquire();
+			auto it = local_name_index.find(machine_target+1);
+			fail_false(it != local_name_index.end());
+			memcpy(target_pub_out, it->second.key, ecc_pub_size);
+			return true;
 		}
 	}
 	std::cerr<<"unrecognised leading char:"<<machine_target[0];
