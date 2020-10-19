@@ -38,21 +38,16 @@ int main(int argc, char** argv){
 		}
 	}
 	unsigned char root_pub[ecc_pub_size];
-	//TODO: convert to #root
-	char root_addr[(ecc_pub_size*2)+2];
-	root_addr[0] = '~';
-	compute::get_default_machine(root_pub);
-	bytes_to_hex(root_pub, ecc_pub_size, root_addr+1);
+	//: convert to #root
 	if(entry){
-		strcpy(ping_addr, root_addr);
+		strcpy(ping_addr, "#root");
 	}
 	if(strlen(ping_addr) > 0){
 		if(strlen(ping_from) == 0){
-			strcpy(ping_from, root_addr);
+			strcpy(ping_from, "#root");
 		}
 		std::cerr<<"pinging "<<ping_addr<<" from "<<ping_from<<"\n";
-		const char* param = "hello, world!";
-		compute::copy_to_queue(ping_addr, ping_from, "entry", nullptr, nullptr, param, strlen(param)+1);
+		compute::copy_to_queue(ping_addr, ping_from, "entry", nullptr, nullptr, nullptr, 0);
 	}
 	fail_check(runtime::init(), -1);
 	fail_check(compute::launch_threads(1), -1);

@@ -1,9 +1,6 @@
 {
 	"target":{
-		"type":"root",
-		"pub":"TODO:ADD PUB TARGETING",
-		"priv":"TODO: ADD MACHINE CREATION",
-		"name":"TODO: ADD MACHINE NAMING"
+		"name":"test"
 	},
 	"reset_data":true,
 	"data":{

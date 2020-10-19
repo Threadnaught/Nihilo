@@ -6,9 +6,22 @@
 
 #include "../include/platform.h"
 
+struct pub_key{
+	unsigned char key[ecc_pub_size];
+	bool operator< (const pub_key oth){
+		return memcmp(key, oth.key, ecc_pub_size) < 0;
+	}
+};
+bool operator< (const pub_key k1, const pub_key k2){
+	return memcmp(k1.key, k2.key, ecc_pub_size) < 0;
+}
+pub_key pub_conv(unsigned char* p){
+	return *(pub_key*)p;
+}
+
 thread::locker<std::queue<host_task*>> task_queue;
-thread::locker<std::vector<machine>> local_machines; //TODO: create map(s) for efficency
-unsigned char root_pub[ecc_pub_size];
+thread::locker<std::map<pub_key, machine>> local_machines;
+std::map<std::string, pub_key> local_name_index; //shares local_machines locker (TODO: create struct to lock both in the same locker)
 std::map<std::string, intercepts::intercept_func> platform_intercepts;
 
 void delete_task(host_task* t){
@@ -28,7 +41,7 @@ bool compute::init(){
 		unsigned char c;
 		recall::write("machines_table", &c, 0);
 		unsigned char new_pub[ecc_pub_size];
-		new_machine(new_pub, true);
+		fail_false(new_machine("root", new_pub));
 		table = (unsigned char*)recall::read("machines_table", &table_len);
 	}
 	//std::cerr<<"table size: "<<table_len<<"\n";
@@ -40,10 +53,8 @@ bool compute::init(){
 		std::cerr<<"loading machine "<<pub_hex<<"\n";
 		machine* m = (machine*)recall::read(pub_hex, &m_len);
 		fail_false(m_len == sizeof(machine));
-		locals->push_back(*m);
-		if(locals->size() == 1){//first machine, clearly the root TODO: create a db-wide config and make this more better
-			memcpy(root_pub, m->keypair.ecc_pub, ecc_pub_size);
-		}
+		(*locals)[pub_conv(table+i)] = *m;
+		local_name_index[m->name] = pub_conv(m->keypair.ecc_pub);
 	}
 	local_machines.release();
 	delete table;
@@ -56,7 +67,9 @@ bool handle_individual_task(host_task* t){
 	fail_false(compute::resolve_local_machine(t->dest_addr, dest_pub));
 	//check if this call is intercepted
 	auto found = platform_intercepts.find(t->t.function_name);
-	if(memcmp(root_pub, dest_pub, ecc_pub_size) == 0 && found != platform_intercepts.end()){//check for intercepts
+	unsigned char root[ecc_pub_size];
+	compute::get_root_machine(root);
+	if(memcmp(root, dest_pub, ecc_pub_size) == 0 && found != platform_intercepts.end()){//check for intercepts
 		(*(found->second.func))({0, nullptr});
 		return true;
 	} else 
@@ -128,31 +141,37 @@ bool compute::get_pub(unsigned char* id, unsigned char* pub_out){
 	return false;
 }
 bool compute::get_priv(unsigned char* pub, unsigned char* priv_out){
+	//this O(log N) comparison no longer brings pain to my soul or shame to my descendents
 	auto m = local_machines.acquire();
-	//this O(N) comparison brings pain to my soul and shame to my descendents
-	for(auto it = m->begin(); it != m->end(); it++){
-		if(memcmp(it->keypair.ecc_pub, pub, ecc_pub_size) == 0){
-			memcpy(priv_out, it->keypair.ecc_priv, ecc_priv_size);
-			local_machines.release();
-			return true;
-		}
+	auto it = m->find(pub_conv(pub));
+	if(it == m->end()){
+		local_machines.release();
+		return false;	
 	}
+	memcpy(priv_out, it->second.keypair.ecc_priv, ecc_priv_size);
 	local_machines.release();
-	return false;
+	return true;
 }
-void compute::new_machine(unsigned char* pub_out, bool root){
+bool compute::new_machine(const char* name, unsigned char* pub_out){
+	//if name is set, it must not be a duplicate
+	if(name != nullptr){
+		local_machines.acquire();
+		if(local_name_index.find(name) != local_name_index.end()){
+			local_machines.release();
+			return false;
+		}
+		local_machines.release();
+	}
 	//gen keypair:
 	unsigned char priv[ecc_priv_size];
 	crypto::gen_ecdh_keypair(pub_out, priv);
 	//fill out machine:
 	machine m;
-	m.root = root;
 	memcpy(m.keypair.ecc_pub, pub_out, ecc_pub_size);
 	memcpy(m.keypair.ecc_priv, priv, ecc_priv_size);
-	crypto::id_from_pub(pub_out, m.ID);
-	//add to array:
-	local_machines.acquire()->push_back(m);
-	local_machines.release();
+	memset(m.name, 0, max_name_len);
+	if(name != nullptr)
+		strncpy(m.name, name, max_name_len);
 	//save to database:
 	recall::acquire_lock();
 	//save pub to table:
@@ -167,6 +186,11 @@ void compute::new_machine(unsigned char* pub_out, bool root){
 	std::cerr<<"created machine:"<<pub_hex<<"\n";
 	free(table);
 	recall::release_lock();
+	//add to arrays:
+	(*local_machines.acquire())[pub_conv(m.keypair.ecc_pub)] = m;
+	local_name_index[name] = pub_conv(m.keypair.ecc_pub);
+	local_machines.release();
+	return true;
 }
 
 void* compute::get_wasm(unsigned char* pub, int* length){
@@ -178,18 +202,34 @@ void* compute::get_wasm(unsigned char* pub, int* length){
 	recall::release_lock();
 	return wasm_data;
 }
-
-void compute::get_default_machine(unsigned char* pub_out){
-	memcpy(pub_out, local_machines.acquire()->at(0).keypair.ecc_pub, ecc_pub_size);
+void compute::get_root_machine(unsigned char* pub_out){
+	local_machines.acquire();
+	memcpy(pub_out, local_name_index["root"].key, ecc_pub_size);
 	local_machines.release();
 }
-bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char* limit){
+
+
+//my god does c/c++ stdlib need a thread-safe, functional way to mess with the working directory
+bool path_rel_to(const char* path, const char* rel_to, char* path_out, int path_out_len){
+	if (path[0] ==  '/' || path[0] ==  '~'){
+		fail_false(strlen(path) < path_out_len);
+		strcpy(path_out, path);
+		return true;
+	}
+	fail_false((strlen(path)+strlen(rel_to)+1) < path_out_len);
+	strcpy(path_out, rel_to);
+	strcpy(path_out+strlen(path_out), "/");
+	strcpy(path_out+strlen(path_out), path);
+	return true;
+}
+
+bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char* limit, const char* working_directory){
 	//get first child:
 	cJSON* child = node->child;
 	//iterate over children
 	while(child){
 		//ensure that this child name fits in the buffer, and that it doesn't have an illegal char
-		fail_false (strlen(child->string) + cursor < (limit-2)) 
+		fail_false (strlen(child->string) + cursor < (limit-2));
 		fail_false (strstr(".", child->string)==nullptr);
 		//add the dot to the buffer
 		*cursor = '.';
@@ -226,11 +266,13 @@ bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char
 					recall::write(current_path, to_write, hex_len/2);
 				}
 				else if(strcmp(zeroth->valuestring, "file") == 0){
+					char current_file_path[256];
 					//open file pointed to by value, and save it
 					cJSON* first = cJSON_GetArrayItem(child, 1);
 					fail_false(first->type == cJSON_String);
 					int flen;
-					char* to_write = read_file(first->valuestring, &flen);
+					fail_false(path_rel_to(first->valuestring, working_directory, current_file_path, sizeof(current_file_path)));
+					char* to_write = read_file(current_file_path, &flen);
 					recall::write(current_path, to_write, flen);
 				} 
 				else {
@@ -241,7 +283,7 @@ bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char
 		}
 		//if the child is an object, it must be recursed into
 		else if(child->type == cJSON_Object){
-			if(!recurse_load_data(child, current_path, cursor, limit))
+			if(!recurse_load_data(child, current_path, cursor, limit, working_directory))
 				return false;
 		}
 		//run back the cursor to the parent
@@ -254,25 +296,28 @@ bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char
 	}
 	return true;
 }
-//messes with working dir, so only one thread can call this at any time
-std::recursive_mutex working_dir_mutex;
-bool compute::load_from_proto_file(const char* proto_path){
-	working_dir_mutex.lock();
-	char working_dir[512];
+
+bool compute::load_from_proto_file(const char* manifest_path){
+	char manifest_dir[256];
 	char* data = nullptr;
 	cJSON* json = nullptr;
-	working_dir[0] = 0;
-	fail_goto(getcwd(working_dir, sizeof(working_dir)) != nullptr);//this could be the source of problems on microcontrollers
-	fail_goto(chdir(proto_path) != -1);
 	int len;
-	data = read_file("manifest.json", &len);
+	fail_false(strlen(manifest_path) < sizeof(manifest_dir));
+	strcpy(manifest_dir, manifest_path);
+	//find last /
+	char* last_slash = manifest_dir+strlen(manifest_dir);
+	for(;last_slash >= manifest_dir && *last_slash != '/';last_slash--);
+	if(last_slash < manifest_dir)
+		manifest_dir[0] = '\0';
+	else
+		*last_slash = '\0';
+	data = read_file(manifest_path, &len);
+	fail_false(data != nullptr);
 	json = cJSON_Parse(data);
-	fail_goto(load_from_proto(json));
+	fail_goto(load_from_proto(json, manifest_dir));
 	//cleanup on success
-	fail_goto(chdir(working_dir) != -1);
 	delete data;
 	cJSON_Delete(json);
-	working_dir_mutex.unlock();
 	return true;
 	//cleanup on fail:
 	fail:
@@ -281,33 +326,66 @@ bool compute::load_from_proto_file(const char* proto_path){
 		delete data;
 	if(json != nullptr)
 		cJSON_Delete(json);
-	fail_false(chdir(working_dir) != -1);
-	working_dir_mutex.unlock();
 	return false;
 }
 //code to load machine from manifest file into
-bool compute::load_from_proto(cJSON* mach){
-	//find target machine:
+bool compute::load_from_proto(cJSON* mach, const char* working_dir){
+	char target_name[max_name_len+1];
+	char target_pub_hex[(ecc_pub_size*2)+2];
+	bool create_new = true;
+	strcpy(target_name, "#");
+	strcpy(target_pub_hex, "~");
+	//find target json:
 	cJSON* target = cJSON_GetObjectItem(mach, "target");
-	fail_false(target != nullptr);
-	cJSON* mach_type = cJSON_GetObjectItem(target, "type");
-	bool targets_root = (mach_type != nullptr) && (mach_type->type == cJSON_String) && (strcmp(mach_type->valuestring, "root") == 0);
-	//TODO: add a way to specify the pub
-	fail_false(targets_root);//TODO: add a way to target non-root machines
-	auto machines = local_machines.acquire();
-	int target_i = -1;
-	for(int i = 0; i < machines->size(); i++)
-		if((*machines)[i].root){
-			target_i = i;
-			break;
+	//perform type/bounds checking on name and pub
+	if(target != nullptr){
+		cJSON* json_name = cJSON_GetObjectItem(target, "name");
+		if(json_name != nullptr){
+			fail_false(json_name->type == cJSON_String);
+			fail_false(strlen(json_name->valuestring) < (sizeof(target_name)-1));
+			fail_false(strlen(json_name->valuestring) > 0);
+			strcpy(target_name+1, json_name->valuestring);
 		}
-	
-	//TODO: create not currently existing machines
-	fail_false(target_i >= 0);
-	//check for reset_data:
+		cJSON* json_pub = cJSON_GetObjectItem(target, "pub");
+		if(json_pub != nullptr){
+			fail_false(json_pub->type == cJSON_String);
+			fail_false(strlen(json_pub->valuestring) == ecc_pub_size * 2);
+			strcpy(target_pub_hex+1, json_pub->valuestring);
+		}
+	}
+	//variables to store resolved public keys:
+	unsigned char name_resolved[ecc_pub_size];
+	unsigned char pub_resolved[ecc_pub_size];
+	bool name_is_found = false;
+	bool pub_is_found = false;
+	//resolve if set:
+	if(strlen(target_name) > 1)
+		name_is_found = resolve_local_machine(target_name, name_resolved);
+	if(strlen(target_pub_hex) > 1)
+		pub_is_found = resolve_local_machine(target_pub_hex, pub_resolved);
+	//if pub is set, but corresponding machine is not found, there is no way to recover priv key:
+	if(strlen(target_pub_hex) > 1 && !pub_is_found){
+		std::cerr<<"Could not find specified pub("<<target_pub_hex+1<<")\n";
+		return false;
+	}
+	//if pub and name resolution result in different machines, the host cannot decide between them
+	if((pub_is_found && name_is_found) && (memcmp(name_resolved, pub_resolved, ecc_pub_size) != 0)){
+		std::cerr<<"ambiguity between machine specified by name ("<<(target_name+1)<<")and by pub("<<(target_pub_hex+1)<<")\n";
+		return false;
+	}
+	//variable to store single resultant resolved public key
+	unsigned char pub[ecc_pub_size];
+	if(name_is_found)
+		memcpy(pub, name_resolved, ecc_pub_size);
+	else if(pub_is_found)
+		memcpy(pub, pub_resolved, ecc_pub_size);
+	else
+	//if neither is found, create a new machine
+		fail_false(new_machine(strlen(target_name) > 1?(target_name+1):nullptr, pub));
 	char current_node_path[200];
-	bytes_to_hex((*machines)[target_i].keypair.ecc_pub, ecc_pub_size, current_node_path);
+	bytes_to_hex(pub, ecc_pub_size, current_node_path);
 	char* cursor = current_node_path + strlen(current_node_path);
+	//check for reset_data:
 	cJSON* reset_data = cJSON_GetObjectItem(mach, "reset_data");
 	if(reset_data != nullptr && reset_data->valueint == true){
 		strcpy(cursor, ".");
@@ -316,7 +394,9 @@ bool compute::load_from_proto(cJSON* mach){
 	}
 	//load data:
 	cJSON* mach_data = cJSON_GetObjectItem(mach, "data");
-	fail_false(recurse_load_data(mach_data, current_node_path, cursor, current_node_path + sizeof(current_node_path)));
+	fail_false(recurse_load_data(mach_data, current_node_path, cursor, current_node_path + sizeof(current_node_path), working_dir));
+	auto machines = local_machines.acquire();
+	//TODO: modify local_machines etc.
 	local_machines.release();
 	return true;
 }
@@ -355,19 +435,24 @@ bool compute::resolve_local_machine(const char* address, unsigned char* target_p
 			bytes_to_hex_array(hhh, tgt_pub, ecc_pub_size);
 			auto ms = local_machines.acquire();
 			bool found = false;
-			for(int i = 0; i < ms->size(); i++){
-				if(memcmp((*ms)[i].keypair.ecc_pub, tgt_pub, ecc_pub_size) == 0){
-					found = true;
-					memcpy(target_pub_out, tgt_pub, ecc_pub_size);
-					break;
-				}
+			auto it = ms->find(pub_conv(tgt_pub));
+			if(it != ms->end()){
+				found = true;
+				memcpy(target_pub_out, tgt_pub, ecc_pub_size);
 			}
 			local_machines.release();
 			return found;
 		}
 		case '#':{
-			std::cerr<<"name-based resolution not yet supported\n";
-			return false;
+			local_machines.acquire();
+			auto it = local_name_index.find(machine_target+1);
+			if(it == local_name_index.end()){
+				local_machines.release();
+				fail_false(false);
+			}
+			memcpy(target_pub_out, it->second.key, ecc_pub_size);
+			local_machines.release();
+			return true;
 		}
 	}
 	std::cerr<<"unrecognised leading char:"<<machine_target[0];
