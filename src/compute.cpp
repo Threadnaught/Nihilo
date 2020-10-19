@@ -41,7 +41,7 @@ bool compute::init(){
 		unsigned char c;
 		recall::write("machines_table", &c, 0);
 		unsigned char new_pub[ecc_pub_size];
-		new_machine("root", new_pub);
+		fail_false(new_machine("root", new_pub));
 		table = (unsigned char*)recall::read("machines_table", &table_len);
 	}
 	//std::cerr<<"table size: "<<table_len<<"\n";
@@ -152,7 +152,16 @@ bool compute::get_priv(unsigned char* pub, unsigned char* priv_out){
 	local_machines.release();
 	return true;
 }
-void compute::new_machine(const char* name, unsigned char* pub_out){
+bool compute::new_machine(const char* name, unsigned char* pub_out){
+	//if name is set, it must not be a duplicate
+	if(name != nullptr){
+		local_machines.acquire();
+		if(local_name_index.find(name) != local_name_index.end()){
+			local_machines.release();
+			return false;
+		}
+		local_machines.release();
+	}
 	//gen keypair:
 	unsigned char priv[ecc_priv_size];
 	crypto::gen_ecdh_keypair(pub_out, priv);
@@ -177,11 +186,11 @@ void compute::new_machine(const char* name, unsigned char* pub_out){
 	std::cerr<<"created machine:"<<pub_hex<<"\n";
 	free(table);
 	recall::release_lock();
-
-	//add to array:
+	//add to arrays:
 	(*local_machines.acquire())[pub_conv(m.keypair.ecc_pub)] = m;
 	local_name_index[name] = pub_conv(m.keypair.ecc_pub);
 	local_machines.release();
+	return true;
 }
 
 void* compute::get_wasm(unsigned char* pub, int* length){
@@ -321,20 +330,62 @@ bool compute::load_from_proto_file(const char* manifest_path){
 }
 //code to load machine from manifest file into
 bool compute::load_from_proto(cJSON* mach, const char* working_dir){
-	//find target machine:
+	char target_name[max_name_len+1];
+	char target_pub_hex[(ecc_pub_size*2)+2];
+	bool create_new = true;
+	strcpy(target_name, "#");
+	strcpy(target_pub_hex, "~");
+	//find target json:
 	cJSON* target = cJSON_GetObjectItem(mach, "target");
-	fail_false(target != nullptr);
-	cJSON* mach_type = cJSON_GetObjectItem(target, "type");
-	bool targets_root = (mach_type != nullptr) && (mach_type->type == cJSON_String) && (strcmp(mach_type->valuestring, "root") == 0);
-	//TODO: add a way to specify the pub
-	fail_false(targets_root);//TODO: add a way to target non-root machines
-	//TODO: create not currently existing machines
-	//check for reset_data:
+	//perform type/bounds checking on name and pub
+	if(target != nullptr){
+		cJSON* json_name = cJSON_GetObjectItem(target, "name");
+		if(json_name != nullptr){
+			fail_false(json_name->type == cJSON_String);
+			fail_false(strlen(json_name->valuestring) < (sizeof(target_name)-1));
+			fail_false(strlen(json_name->valuestring) > 0);
+			strcpy(target_name+1, json_name->valuestring);
+		}
+		cJSON* json_pub = cJSON_GetObjectItem(target, "pub");
+		if(json_pub != nullptr){
+			fail_false(json_pub->type == cJSON_String);
+			fail_false(strlen(json_pub->valuestring) == ecc_pub_size * 2);
+			strcpy(target_pub_hex+1, json_pub->valuestring);
+		}
+	}
+	//variables to store resolved public keys:
+	unsigned char name_resolved[ecc_pub_size];
+	unsigned char pub_resolved[ecc_pub_size];
+	bool name_is_found = false;
+	bool pub_is_found = false;
+	//resolve if set:
+	if(strlen(target_name) > 1)
+		name_is_found = resolve_local_machine(target_name, name_resolved);
+	if(strlen(target_pub_hex) > 1)
+		pub_is_found = resolve_local_machine(target_pub_hex, pub_resolved);
+	//if pub is set, but corresponding machine is not found, there is no way to recover priv key:
+	if(strlen(target_pub_hex) > 1 && !pub_is_found){
+		std::cerr<<"Could not find specified pub("<<target_pub_hex+1<<")\n";
+		return false;
+	}
+	//if pub and name resolution result in different machines, the host cannot decide between them
+	if((pub_is_found && name_is_found) && (memcmp(name_resolved, pub_resolved, ecc_pub_size) != 0)){
+		std::cerr<<"ambiguity between machine specified by name ("<<(target_name+1)<<")and by pub("<<(target_pub_hex+1)<<")\n";
+		return false;
+	}
+	//variable to store single resultant resolved public key
+	unsigned char pub[ecc_pub_size];
+	if(name_is_found)
+		memcpy(pub, name_resolved, ecc_pub_size);
+	else if(pub_is_found)
+		memcpy(pub, pub_resolved, ecc_pub_size);
+	else
+	//if neither is found, create a new machine
+		fail_false(new_machine(strlen(target_name) > 1?(target_name+1):nullptr, pub));
 	char current_node_path[200];
-	unsigned char root_pub[ecc_pub_size];
-	compute::get_root_machine(root_pub);
-	bytes_to_hex(root_pub, ecc_pub_size, current_node_path);
+	bytes_to_hex(pub, ecc_pub_size, current_node_path);
 	char* cursor = current_node_path + strlen(current_node_path);
+	//check for reset_data:
 	cJSON* reset_data = cJSON_GetObjectItem(mach, "reset_data");
 	if(reset_data != nullptr && reset_data->valueint == true){
 		strcpy(cursor, ".");
@@ -395,8 +446,12 @@ bool compute::resolve_local_machine(const char* address, unsigned char* target_p
 		case '#':{
 			local_machines.acquire();
 			auto it = local_name_index.find(machine_target+1);
-			fail_false(it != local_name_index.end());
+			if(it == local_name_index.end()){
+				local_machines.release();
+				fail_false(false);
+			}
 			memcpy(target_pub_out, it->second.key, ecc_pub_size);
+			local_machines.release();
 			return true;
 		}
 	}
