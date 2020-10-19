@@ -220,7 +220,7 @@ bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char
 	//iterate over children
 	while(child){
 		//ensure that this child name fits in the buffer, and that it doesn't have an illegal char
-		fail_false (strlen(child->string) + cursor < (limit-2)) 
+		fail_false (strlen(child->string) + cursor < (limit-2));
 		fail_false (strstr(".", child->string)==nullptr);
 		//add the dot to the buffer
 		*cursor = '.';
