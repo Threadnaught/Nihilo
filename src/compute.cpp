@@ -198,7 +198,23 @@ void compute::get_root_machine(unsigned char* pub_out){
 	memcpy(pub_out, local_name_index["root"].key, ecc_pub_size);
 	local_machines.release();
 }
-bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char* limit){
+
+
+//my god does c/c++ stdlib need a thread-safe, functional way to mess with the working directory
+bool path_rel_to(const char* path, const char* rel_to, char* path_out, int path_out_len){
+	if (path[0] ==  '/' || path[0] ==  '~'){
+		fail_false(strlen(path) < path_out_len);
+		strcpy(path_out, path);
+		return true;
+	}
+	fail_false((strlen(path)+strlen(rel_to)+1) < path_out_len);
+	strcpy(path_out, rel_to);
+	strcpy(path_out+strlen(path_out), "/");
+	strcpy(path_out+strlen(path_out), path);
+	return true;
+}
+
+bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char* limit, const char* working_directory){
 	//get first child:
 	cJSON* child = node->child;
 	//iterate over children
@@ -241,11 +257,13 @@ bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char
 					recall::write(current_path, to_write, hex_len/2);
 				}
 				else if(strcmp(zeroth->valuestring, "file") == 0){
+					char current_file_path[256];
 					//open file pointed to by value, and save it
 					cJSON* first = cJSON_GetArrayItem(child, 1);
 					fail_false(first->type == cJSON_String);
 					int flen;
-					char* to_write = read_file(first->valuestring, &flen);
+					fail_false(path_rel_to(first->valuestring, working_directory, current_file_path, sizeof(current_file_path)));
+					char* to_write = read_file(current_file_path, &flen);
 					recall::write(current_path, to_write, flen);
 				} 
 				else {
@@ -256,7 +274,7 @@ bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char
 		}
 		//if the child is an object, it must be recursed into
 		else if(child->type == cJSON_Object){
-			if(!recurse_load_data(child, current_path, cursor, limit))
+			if(!recurse_load_data(child, current_path, cursor, limit, working_directory))
 				return false;
 		}
 		//run back the cursor to the parent
@@ -269,25 +287,28 @@ bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char
 	}
 	return true;
 }
-//messes with working dir, so only one thread can call this at any time
-std::recursive_mutex working_dir_mutex;
-bool compute::load_from_proto_file(const char* proto_path){
-	working_dir_mutex.lock();
-	char working_dir[512];
+
+bool compute::load_from_proto_file(const char* manifest_path){
+	char manifest_dir[256];
 	char* data = nullptr;
 	cJSON* json = nullptr;
-	working_dir[0] = 0;
-	fail_goto(getcwd(working_dir, sizeof(working_dir)) != nullptr);//this could be the source of problems on microcontrollers
-	fail_goto(chdir(proto_path) != -1);
 	int len;
-	data = read_file("manifest.json", &len);
+	fail_false(strlen(manifest_path) < sizeof(manifest_dir));
+	strcpy(manifest_dir, manifest_path);
+	//find last /
+	char* last_slash = manifest_dir+strlen(manifest_dir);
+	for(;last_slash >= manifest_dir && *last_slash != '/';last_slash--);
+	if(last_slash < manifest_dir)
+		manifest_dir[0] = '\0';
+	else
+		*last_slash = '\0';
+	data = read_file(manifest_path, &len);
+	fail_false(data != nullptr);
 	json = cJSON_Parse(data);
-	fail_goto(load_from_proto(json));
+	fail_goto(load_from_proto(json, manifest_dir));
 	//cleanup on success
-	fail_goto(chdir(working_dir) != -1);
 	delete data;
 	cJSON_Delete(json);
-	working_dir_mutex.unlock();
 	return true;
 	//cleanup on fail:
 	fail:
@@ -296,12 +317,10 @@ bool compute::load_from_proto_file(const char* proto_path){
 		delete data;
 	if(json != nullptr)
 		cJSON_Delete(json);
-	fail_false(chdir(working_dir) != -1);
-	working_dir_mutex.unlock();
 	return false;
 }
 //code to load machine from manifest file into
-bool compute::load_from_proto(cJSON* mach){
+bool compute::load_from_proto(cJSON* mach, const char* working_dir){
 	//find target machine:
 	cJSON* target = cJSON_GetObjectItem(mach, "target");
 	fail_false(target != nullptr);
@@ -324,7 +343,7 @@ bool compute::load_from_proto(cJSON* mach){
 	}
 	//load data:
 	cJSON* mach_data = cJSON_GetObjectItem(mach, "data");
-	fail_false(recurse_load_data(mach_data, current_node_path, cursor, current_node_path + sizeof(current_node_path)));
+	fail_false(recurse_load_data(mach_data, current_node_path, cursor, current_node_path + sizeof(current_node_path), working_dir));
 	auto machines = local_machines.acquire();
 	//TODO: modify local_machines etc.
 	local_machines.release();
