@@ -1,0 +1,15 @@
+[
+	{
+		"target":{"name":"root"},
+		"data":{
+			"wasm":"file:bin/com_example.wasm"
+		}
+	},
+	{
+		"target":{"name":"place_server"},
+		"data":{
+			"wasm":"file:bin/com_example.wasm",
+			"place":"string:world"
+		}
+	}
+]

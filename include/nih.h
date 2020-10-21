@@ -96,6 +96,11 @@ namespace compute{
 	bool get_address_ip_target(const char* address, char* ip_target_out);//get IP/DNS/hostname from nih address
 	bool get_address_machine_target(const char* address, char* machine_target_out);//get machine pub/name from nih address, including first char
 	bool resolve_local_machine(const char* address, unsigned char* target_pub_out);
+	struct pub_key{
+		unsigned char key[ecc_pub_size];
+	};
+	bool operator< (const pub_key k1, const pub_key k2);
+	pub_key pub_conv(unsigned char* p);
 }
 
 namespace talk{

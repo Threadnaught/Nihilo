@@ -6,4 +6,4 @@ srcs:
 	$(MAKE) -C src/
 
 default_proto:
-	$(MAKE) -C machine_prototypes/default
+	$(MAKE) -C machine_prototypes

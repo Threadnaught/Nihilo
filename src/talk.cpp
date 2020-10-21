@@ -76,7 +76,7 @@ bool send_comm(host_task* t){
 	hosts[host_index].timeout = time(NULL) + con_timeout;
 	//derrive shared secret:
 	if(receiver_identifier[0] != '~'){
-		std::cerr<<"destination pubkey must be currently specified\n"; //(TODO)
+		std::cerr<<"destination pubkey must currently be specified\n"; //(TODO)
 		fail_false(false);
 	}
 	hex_to_bytes_array(receiver_pub, receiver_identifier+1, ecc_pub_size);
