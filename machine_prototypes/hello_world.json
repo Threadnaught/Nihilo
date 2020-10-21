@@ -1,10 +1,10 @@
 {
 	"target":{
-		"name":"test"
+		"name":"root"
 	},
 	"reset_data":true,
 	"data":{
-		"wasm":["file", "test.wasm"],
+		"wasm":["file", "bin/hello_world.wasm"],
 		"foo":["string", "bar"],
 		"test":["absent"]
 	}
