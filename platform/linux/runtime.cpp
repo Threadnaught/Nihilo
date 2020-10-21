@@ -88,7 +88,7 @@ bool write_DB(wasm_exec_env_t exec_env, uint32_t path, uint32_t to_write, uint32
 	fail_false(write_length < 1000);
 	host_task* t = (host_task*)wasm_runtime_get_user_data(exec_env);
 	char tgt_path[200];
-	unsigned char* this_pub_bytes;
+	unsigned char this_pub_bytes[ecc_pub_size];
 	fail_false(compute::resolve_local_machine(t->dest_addr, this_pub_bytes));
 	bytes_to_hex(this_pub_bytes, ecc_pub_size, tgt_path);
 	strcpy(tgt_path+strlen(tgt_path), ".");
@@ -104,7 +104,7 @@ bool write_DB(wasm_exec_env_t exec_env, uint32_t path, uint32_t to_write, uint32
 uint32_t read_DB(wasm_exec_env_t exec_env, uint32_t path, uint32_t read_length){
 	host_task* t = (host_task*)wasm_runtime_get_user_data(exec_env);
 	char tgt_path[200];
-	unsigned char* this_pub_bytes;
+	unsigned char this_pub_bytes[ecc_pub_size];
 	fail_false(compute::resolve_local_machine(t->dest_addr, this_pub_bytes));
 	bytes_to_hex(this_pub_bytes, ecc_pub_size, tgt_path);
 	strcpy(tgt_path+strlen(tgt_path), ".");

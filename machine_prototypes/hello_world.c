@@ -6,5 +6,7 @@
 #include "../include/api.h"
 
 void entry(char* arg){
-	printf("Hello, world!\n");
+	uint32_t len;
+	char* place = read_DB("place", &len);
+	printf("Hello, %s!\n", place);
 }

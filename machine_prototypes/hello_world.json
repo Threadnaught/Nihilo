@@ -4,8 +4,7 @@
 	},
 	"reset_data":true,
 	"data":{
-		"wasm":["file", "bin/hello_world.wasm"],
-		"foo":["string", "bar"],
-		"test":["absent"]
+		"wasm":"file:bin/hello_world.wasm",
+		"place":"string:world"
 	}
 }

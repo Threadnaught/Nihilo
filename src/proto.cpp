@@ -33,46 +33,45 @@ bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char
 		cursor += strlen(child->string);
 		//std::cerr<<current_path<<"\n";
 		//if the child is an array, this is a value to be added to the DB
-		if(child->type == cJSON_Array){
+		if(child->type == cJSON_String){
 			//because this is a value, we need to ensure any previous values/children do not exist
 			recall::delete_all_with_prefix(current_path);
 			//ensure there is at least 1 child, ensure it is the right type
-			fail_false(cJSON_GetArraySize(child) > 0);
-			cJSON* zeroth = cJSON_GetArrayItem(child, 0);
-			fail_false(zeroth->type == cJSON_String);
+			char* body = strstr(child->valuestring, ":");
 			//if it is just absent, there is no need to add a value to the DB
-			if(strcmp(zeroth->valuestring, "absent") != 0){
-				fail_false(cJSON_GetArraySize(child) == 2);
-				if(strcmp(zeroth->valuestring, "string") == 0){
-					//simplest case: load string as literal
-					cJSON* first = cJSON_GetArrayItem(child, 1);
-					fail_false(first->type == cJSON_String);
-					recall::write(current_path, first->valuestring, strlen(first->valuestring)+1);
-				} 
-				else if(strcmp(zeroth->valuestring, "hex") == 0){
-					//convert hex string to bytes
-					cJSON* first = cJSON_GetArrayItem(child, 1);
-					fail_false(first->type == cJSON_String);
-					int hex_len = strlen(first->valuestring);
-					fail_false(strlen(first->valuestring) % 2 == 0); //hex must be even
-					unsigned char* to_write = new unsigned char[hex_len/2];
-					hex_to_bytes(first->valuestring, to_write);
-					recall::write(current_path, to_write, hex_len/2);
+			if(strcmp(child->valuestring, "absent") != 0){
+				fail_false(body != nullptr);
+				*body = '\0';
+				body++;
+				if(strcmp(child->valuestring, "string") == 0){
+					//simplest case: write string directly into memory
+					recall::write(current_path, body, strlen(body)+1);
 				}
-				else if(strcmp(zeroth->valuestring, "file") == 0){
+				else if(strcmp(child->valuestring, "hex") == 0){
+					//convert hex to bytes and write into memory
+					int hex_len = strlen(child->valuestring);
+					fail_false(hex_len % 2 == 0); //hex must be even
+					unsigned char* to_write = new unsigned char[hex_len/2];
+					hex_to_bytes(child->valuestring, to_write);
+					recall::write(current_path, to_write, hex_len/2);
+					delete to_write;
+				}
+				else if(strcmp(child->valuestring, "file") == 0){
+					//open file and write into memory
 					char current_file_path[256];
 					//open file pointed to by value, and save it
-					cJSON* first = cJSON_GetArrayItem(child, 1);
-					fail_false(first->type == cJSON_String);
 					int flen;
-					fail_false(path_rel_to(first->valuestring, working_directory, current_file_path, sizeof(current_file_path)));
+					fail_false(path_rel_to(body, working_directory, current_file_path, sizeof(current_file_path)));
 					char* to_write = read_file(current_file_path, &flen);
 					recall::write(current_path, to_write, flen);
-				} 
-				else {
-					std::cerr<<"attempt to load prototype data with unkown type:"<<zeroth->valuestring<<"\n";
+					delete to_write;
+				}
+				else{
+					std::cerr<<"attempt to load prototype data with unkown type:"<<child->valuestring<<"\n";
+					(*(body-1)) = ':';
 					return false;
 				}
+				(*(body-1)) = ':';//leave no trace
 			}
 		}
 		//if the child is an object, it must be recursed into
@@ -82,7 +81,7 @@ bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char
 		}
 		//run back the cursor to the parent
 		for(; *cursor != '.' && cursor > current_path; cursor--);
-		fail_false(cursor > current_path);//COULD SOMEONE OVERWRITE THEIR PUB KEY AND BREAK OUT OF SANDOBOX WITH THIS CHECK???
+		fail_false(cursor > current_path);//SECURITY: COULD SOMEONE OVERWRITE THEIR PUB KEY AND BREAK OUT OF SANDOBOX WITH THIS CHECK???
 		//cut off this child
 		*cursor = '\0';
 		//continue to next iteration
@@ -124,6 +123,14 @@ bool compute::load_from_proto_file(const char* manifest_path){
 }
 //code to load machine from manifest file into
 bool compute::load_from_proto(cJSON* mach, const char* working_dir){
+	//if this is an array, there are multiple protos to load
+	if(mach->type == cJSON_Array){
+		cJSON* this_mach;
+		cJSON_ArrayForEach(this_mach, mach){
+			fail_false(load_from_proto(this_mach, working_dir));
+		}
+		return true;
+	}
 	char target_name[max_name_len+1];
 	char target_pub_hex[(ecc_pub_size*2)+2];
 	bool create_new = true;
