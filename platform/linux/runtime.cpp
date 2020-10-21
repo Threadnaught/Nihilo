@@ -183,6 +183,7 @@ bool runtime::exec_task(host_task* t){
 	} else{
 		argv[0] = 0;
 	}
+	t->success = true;//not sure why this would be required?
 	fail_false(wasm_runtime_call_wasm(e_env, func, 1, argv));
 	std::cerr<<"";//flush prints to docker
 	wasm_runtime_destroy_exec_env(e_env);

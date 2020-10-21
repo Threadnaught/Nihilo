@@ -1,8 +1,5 @@
 {
-	"target":{
-		"name":"root"
-	},
-	"reset_data":true,
+	"target":{"name":"root"},
 	"data":{
 		"wasm":"file:bin/hello_world.wasm",
 		"place":"string:world"
