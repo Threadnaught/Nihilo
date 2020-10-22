@@ -1,0 +1,19 @@
+version: '3'
+services:
+  nihilo_host:
+    build: ./vanilla
+    environment:
+       cmd: /nih/bin/nih -d /nih/docker_develop/databases/hostdb -m /nih/machine_prototypes/net_example/server.json
+    volumes:
+      - ../:/nih/
+
+  pinger:
+    build: ./vanilla
+    environment:
+      cmd: /nih/bin/nih -d /nih/docker_develop/databases/pingerdb -m /nih/machine_prototypes/net_example/pinger.json -e
+    volumes:
+      - ../:/nih/
+    depends_on:
+      - nihilo_host
+
+#gdb -q -ex run --args
