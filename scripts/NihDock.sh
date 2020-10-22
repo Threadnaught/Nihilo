@@ -1,4 +1,17 @@
 #!/bin/bash
+
+#ensure docker is installed:
+if ! command -v COMMAND &> /dev/null; then
+	echo "Docker must be installed"
+	exit 1
+fi
+
+#ensure user is in docker group:
+if ! id -nG "$USER" | grep -qw docker; then
+	echo "User must be in docker group: sudo usermod -aG docker \$USER"
+	exit 1
+fi
+
 git clone https://github.com/Threadnaught/Nihilo.git --recursive
 echo "FROM ubuntu
 RUN ln -snf \/usr\/share\/zoneinfo\/Europe\/Dublin \/etc\/localtime && echo Europe\/Dublin > \/etc\/timezone && \\
