@@ -24,7 +24,6 @@ namespace crypto{
 	bool derrive_shared(const unsigned char* alice_priv, const unsigned char* bob_pub, unsigned char* secret_buf);
 	//misc functions:
 	int rng(void* state, unsigned char* outbytes, size_t len); //MUST BE CRYPTOGRAPHICALLY SECURE
-	bool id_from_pub(const unsigned char* pub, unsigned char* id);
 }
 
 namespace runtime{

@@ -41,7 +41,7 @@ bool recurse_load_data(cJSON* node, char* current_path, char* cursor, const char
 			//if it is just absent, there is no need to add a value to the DB
 			if(strcmp(child->valuestring, "absent") != 0){
 				fail_false(body != nullptr);
-				fail_false(strlen(body) < 2); //catch a cheeky ...:" underflow
+				fail_false(strlen(body) > 1); //catch a cheeky ...:" underflow
 				*body = '\0';
 				body++;
 				if(strcmp(child->valuestring, "string") == 0){

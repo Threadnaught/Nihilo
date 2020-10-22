@@ -1,7 +1,7 @@
 {
 	"target":{"name":"root"},
 	"data":{
-		"wasm":"file:bin/hello_world.wasm",
+		"wasm":"file:../bin/hello_world.wasm",
 		"place":"string:world"
 	}
 }

@@ -8,7 +8,6 @@
 
 //size in bytes len in chars
 
-#define ID_size 12
 #define ecc_pub_size 32
 #define ecc_priv_size 32
 #define shared_secret_size 16
@@ -39,7 +38,7 @@ struct packet_header{
 
 //both types of task are followed by the param (of variable length)
 
-struct common_task{ //task on the wire
+struct common_task{
 	char function_name[max_func_len];
 	char on_success[max_func_len];
 	char on_failure[max_func_len];
@@ -51,13 +50,13 @@ struct host_task{//task (full)
 	int ret_len = -1;
 	void* ret = nullptr;
 	short param_length = 0; //0 for no param
-	bool success = true; //TODO: debug where this gets reset during execution??
+	bool success = true;
 	void* env_inst;
 	common_task t;
 };
 
-struct wire_task{
-	unsigned char target_ID[ID_size];
+struct wire_task{ //task on the wire
+	unsigned char target_pub[ecc_pub_size];
 	common_task t;
 };
 
@@ -86,7 +85,6 @@ namespace compute{
 	bool init();
 	bool launch_threads(int thread_count);
 	bool copy_to_queue(const char* dest_addr, const char* origin_addr, const char* function_name, const char* on_success, const char* on_failure, const void* param, int paramlen);
-	bool get_pub(unsigned char* id, unsigned char* pub_out);
 	bool get_priv(unsigned char* pub, unsigned char* priv_out);
 	bool new_machine(const char* name, unsigned char* pub_out);
 	void* get_wasm(unsigned char* pub, int* length);
