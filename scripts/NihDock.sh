@@ -1,7 +1,10 @@
 #!/bin/bash
 
+mkdir -p Nih
+cd Nih
+
 #ensure docker is installed:
-if ! command -v COMMAND &> /dev/null; then
+if ! command -v docker &> /dev/null; then
 	echo "Docker must be installed"
 	exit 1
 fi
@@ -9,6 +12,7 @@ fi
 #ensure user is in docker group:
 if ! id -nG "$USER" | grep -qw docker; then
 	echo "User must be in docker group: sudo usermod -aG docker \$USER"
+	echo "AND LOG OUT AND BACK IN!!!"
 	exit 1
 fi
 
