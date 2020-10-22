@@ -84,18 +84,4 @@ namespace crypto{
 		fread(outbytes, 1, len, rand);
 		return 0;
 	}
-
-	bool id_from_pub(const unsigned char* pub, unsigned char* id){
-		unsigned char pub_digest[32];
-		mbedtls_sha256_context sha;
-		mbedtls_sha256_init(&sha);
-		//drop SHA256 of public key into pub_digest
-		fail_false(mbedtls_sha256_starts_ret(&sha, 0) == 0);
-		fail_false(mbedtls_sha256_update_ret(&sha, pub, ecc_pub_size) == 0);
-		fail_false(mbedtls_sha256_finish_ret(&sha, pub_digest) == 0);
-		//copy first ID_size bytes into id
-		memcpy(id, pub_digest, ID_size);
-		mbedtls_sha256_free(&sha);
-		return true;
-	}
 }

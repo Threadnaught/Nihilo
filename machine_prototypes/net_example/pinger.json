@@ -1,0 +1,7 @@
+{
+	"target":{"name":"root"},
+	"data":{
+		"wasm":"file:../bin/net_example.wasm",
+		"server_address":"string:nihilo_host~2E8BB2F86761682362A7EED8522D855203F0C72D1D5B670049B1CA751F8A89B1"
+	}
+}

@@ -131,9 +131,6 @@ bool compute::copy_to_queue(const char* dest_addr, const char* origin_addr, cons
 	return true;
 }
 
-bool compute::get_pub(unsigned char* id, unsigned char* pub_out){
-	return false;
-}
 bool compute::get_priv(unsigned char* pub, unsigned char* priv_out){
 	//this O(log N) comparison no longer brings pain to my soul or shame to my descendents
 	auto m = local_machines.acquire();

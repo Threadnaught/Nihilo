@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../include/api.h"
+#include "../../include/api.h"
 
 /*This file demonstrates the basic nihilo communication flow;
 	1. machines #root and #place_server are loaded.

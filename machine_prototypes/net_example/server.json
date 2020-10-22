@@ -1,0 +1,7 @@
+{
+	"target":{"name":"root"},
+	"data":{
+		"wasm":"file:../bin/net_example.wasm",
+		"place":"string:world"
+	}
+}

@@ -38,7 +38,6 @@ int main(int argc, char** argv){
 		}
 	}
 	unsigned char root_pub[ecc_pub_size];
-	//: convert to #root
 	if(entry){
 		strcpy(ping_addr, "#root");
 	}

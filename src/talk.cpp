@@ -102,7 +102,7 @@ bool send_comm(host_task* t){
 	memset(unencrypted, 0, unencrypted_buffer_size);
 	wire = (wire_task*)unencrypted;
 	//copy over target id/task info/param
-	fail_goto(crypto::id_from_pub(header.dest_pub, wire->target_ID));
+	memcpy(wire->target_pub, header.dest_pub, ecc_pub_size);
 	memcpy(&wire->t, &t->t, sizeof(common_task));
 	if(t->param_length > 0)
 		memcpy(unencrypted+sizeof(wire_task), ((char*)t)+sizeof(host_task), t->param_length);
@@ -142,12 +142,7 @@ bool receive_body(int hostid, unsigned char* body){
 	unsigned char* unencrypted = new unsigned char[unencrypted_buffer_size];
 	fail_false(crypto::decrypt(secret, body, unencrypted_buffer_size, unencrypted));
 	wire_task* t = (wire_task*)unencrypted;
-	//verify ID decodes correctly (so entire packet decodes) TODO TODO TODO
-	unsigned char target_ID[ID_size];
-	crypto::id_from_pub(hosts[hostid].waiting_packet.dest_pub, target_ID);
-	//fail_false(memcmp(target_ID, t->target_ID, ID_size)==0);
-	bytes_to_hex_array(received_hex, t->target_ID, ID_size);
-	bytes_to_hex_array(target_hex, target_ID, ID_size);
+	fail_false(memcmp(t->target_pub, hosts[hostid].waiting_packet.dest_pub, ecc_pub_size)==0);
 	//construct request on this side
 	char dest_addr[max_address_len];
 	dest_addr[0] = '~';
