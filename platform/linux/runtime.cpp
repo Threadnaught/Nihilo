@@ -114,9 +114,11 @@ uint32_t read_DB(wasm_exec_env_t exec_env, uint32_t path, uint32_t read_length){
 	void* ret = recall::read(tgt_path, &datalen);
 	recall::release_lock();
 	fail_false(ret != nullptr);
-	wasm_runtime_validate_app_addr((wasm_module_inst_t)t->env_inst, read_length, sizeof(uint32_t));
-	uint32_t* read_length_ptr = (uint32_t*)wasm_runtime_addr_app_to_native((wasm_module_inst_t)t->env_inst, read_length);
-	(*read_length_ptr) = datalen;
+	if(read_length != 0){
+		fail_false(wasm_runtime_validate_app_addr((wasm_module_inst_t)t->env_inst, read_length, sizeof(uint32_t)));
+		uint32_t* read_length_ptr = (uint32_t*)wasm_runtime_addr_app_to_native((wasm_module_inst_t)t->env_inst, read_length);
+		(*read_length_ptr) = datalen;
+	}
 	uint32_t ret_sandbox;
 	copy_process_to_sandbox(&ret_sandbox, (wasm_module_inst_t)t->env_inst, (unsigned char*)ret, datalen);
 	return ret_sandbox;
