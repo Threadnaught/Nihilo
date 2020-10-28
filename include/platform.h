@@ -32,13 +32,9 @@ namespace runtime{
 }
 //Currently only supports root
 namespace intercepts{
-	struct intercept_param{
-		uint16_t length;
-		void* ret;
-	};
-	typedef intercept_param (*raw_intercept_func)(intercept_param);
+	typedef void (*raw_intercept_func)(host_task*);
 	struct intercept_func{
-		const char* name;
+		//const char* name;
 		raw_intercept_func func;
 	};
 	void register_intercepts(std::map<std::string, intercept_func>& map);
