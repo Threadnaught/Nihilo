@@ -70,7 +70,7 @@ void http_register(host_task* t){
 	crypto::rng(nullptr, daemon_key.data(), resource_id_size);
 	auto ds = daemons.acquire();
 	HTTP_Daemon d;
-	d.d = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION | MHD_USE_SUSPEND_RESUME, 8080, NULL, NULL, &http_handler, daemon_key.data(), MHD_OPTION_END);
+	d.d = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION, 8080, NULL, NULL, &http_handler, daemon_key.data(), MHD_OPTION_END);
 	strcpy(d.handler_address, t->origin_addr);
 	strcpy(d.server_address, t->dest_addr);
 	strcpy(d.handler_func, ((char*)t)+sizeof(host_task));
