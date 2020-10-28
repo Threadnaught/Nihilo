@@ -19,7 +19,7 @@ fi
 git clone https://github.com/Threadnaught/Nihilo.git --recursive
 echo "FROM ubuntu
 RUN ln -snf \/usr\/share\/zoneinfo\/Europe\/Dublin \/etc\/localtime && echo Europe\/Dublin > \/etc\/timezone && \\
-	apt update && apt install libleveldb-dev libmbedtls-dev libcjson-dev build-essential git wget tar cmake nano -y  && \\
+	apt update && apt install libleveldb-dev libmbedtls-dev libcjson-dev build-essential git wget tar cmake nano libmicrohttpd-dev -y  && \\
 	wget https:\/\/github.com\/WebAssembly\/wasi-sdk\/releases\/download\/wasi-sdk-11\/wasi-sdk-11.0-linux.tar.gz && \\
 	tar xvf wasi-sdk-11.0-linux.tar.gz && \\
 	mv wasi-sdk-11.0 \/opt\/wasi-sdk && \\

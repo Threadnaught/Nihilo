@@ -1,4 +1,4 @@
-default: bin/hello_world.wasm bin/com_example.wasm bin/net_example.wasm
+default: bin/hello_world.wasm bin/com_example.wasm bin/net_example.wasm bin/http.wasm
 
 bin/%.wasm: %/main.c ../include/api.h
 	mkdir -p bin

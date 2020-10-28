@@ -1,0 +1,7 @@
+{
+	"target":{"name":"root"},
+	"data":{
+		"wasm":"file:../bin/http.wasm",
+		"page":"string:<head><title>Hi, World!</title></head><body></body><h1>It's me, bitch</h1></body>"
+	}
+}

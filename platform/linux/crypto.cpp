@@ -80,7 +80,7 @@ namespace crypto{
 	}
 	
 	int rng(void* state, unsigned char* outbytes, size_t len){
-		FILE* rand = fopen("/dev/random", "rb");
+		FILE* rand = fopen("/dev/urandom", "rb");//TODO: eval if urandom is good?
 		fread(outbytes, 1, len, rand);
 		return 0;
 	}

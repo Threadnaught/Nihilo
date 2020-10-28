@@ -64,7 +64,7 @@ bool handle_individual_task(host_task* t){
 	unsigned char root[ecc_pub_size];
 	compute::get_root_machine(root);
 	if(memcmp(root, dest_pub, ecc_pub_size) == 0 && found != platform_intercepts.end()){//check for intercepts
-		(*(found->second.func))({0, nullptr});
+		(*(found->second.func))(t);
 		return true;
 	} else 
 		return runtime::exec_task(t);
@@ -85,7 +85,7 @@ void* run_compute_worker(void* args){
 			const char* call_now = success && t->success?t->t.on_success:t->t.on_failure;
 			if(strlen(call_now) > 0){
 				void* param = t->ret_len>0?t->ret:nullptr;
-				compute::copy_to_queue(t->origin_addr, t->dest_addr, call_now, nullptr, nullptr, param, t->ret_len);
+				compute::copy_to_queue(t->origin_addr, t->dest_addr, call_now, nullptr, nullptr, t->ret, t->ret_len);
 			}
 			delete_task(t);
 		}
@@ -107,17 +107,19 @@ bool compute::copy_to_queue(const char* dest_addr, const char* origin_addr, cons
 	//ensure compliance:
 	fail_false(!(strlen(dest_addr) > max_address_len));
 	fail_false(!(strlen(function_name) > max_func_len));
-	if(on_success != nullptr) fail_false(!(strlen(on_success) > max_func_len));
-	if(on_failure != nullptr) fail_false(!(strlen(on_failure) > max_func_len));
+	if(on_success == nullptr) on_success = "";
+	if(on_failure == nullptr) on_failure = "";
+	fail_false(!(strlen(on_success) > max_func_len));
+	fail_false(!(strlen(on_failure) > max_func_len));
 	fail_false(!(paramlen > max_packet_size));//this probably needs some tuning
-	//construt task
+	//construct task
 	host_task* t = (host_task*)malloc(sizeof(host_task) + paramlen);
 	memset(t, 0, sizeof(host_task));//don't want to expose any memory now, do we?
 	strncpy(t->dest_addr, dest_addr, max_address_len);
 	strncpy(t->origin_addr, origin_addr, max_address_len);
 	strncpy(t->t.function_name, function_name, max_func_len);
-	if(on_success != nullptr) strncpy(t->t.on_success, on_success, max_func_len);
-	if(on_failure != nullptr) strncpy(t->t.on_failure, on_failure, max_func_len);
+	strncpy(t->t.on_success, on_success, max_func_len);
+	strncpy(t->t.on_failure, on_failure, max_func_len);
 	t->param_length = paramlen;
 	if(paramlen > 0) memcpy((t+1), param, paramlen);
 	//is target machine on this host?
@@ -211,6 +213,7 @@ int locate_address_pivot(const char* address){
 }
 
 bool compute::get_address_ip_target(const char* address, char* ip_target_out){
+	//std::cerr<<"address:"<<address<<"\n";
 	int pivot = locate_address_pivot(address);
 	fail_false(pivot > -1); //if pivot is -1, it does not have pivot char
 	if(pivot == 0)
