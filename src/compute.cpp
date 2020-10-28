@@ -84,6 +84,7 @@ void* run_compute_worker(void* args){
 			bool success = handle_individual_task(t);
 			const char* call_now = success && t->success?t->t.on_success:t->t.on_failure;
 			if(strlen(call_now) > 0){
+				//std::cerr<<"calling "<<call_now<<" now len:"<<strlen(call_now)<<"\n";
 				void* param = t->ret_len>0?t->ret:nullptr;
 				compute::copy_to_queue(t->origin_addr, t->dest_addr, call_now, nullptr, nullptr, t->ret, t->ret_len);
 			}
@@ -103,7 +104,8 @@ bool compute::launch_threads(int thread_count){
 }
 
 bool compute::copy_to_queue(const char* dest_addr, const char* origin_addr, const char* function_name, const char* on_success, const char* on_failure, const void* param, int paramlen){
-	//std::cerr<<"Sending "<<function_name<<" to "<<dest_addr<<"\n";
+	if(strlen(function_name) == 0) int x = 10/0;
+	//std::cerr<<"Sending "<<function_name<<" to "<<dest_addr<<" from "<<origin_addr<<"\n";
 	//ensure compliance:
 	fail_false(!(strlen(dest_addr) > max_address_len));
 	fail_false(!(strlen(function_name) > max_func_len));
