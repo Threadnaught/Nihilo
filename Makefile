@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-CXX := /usr/bin/g++
+CXX := g++
 export CXX
 
 .PHONY: linux srcs machine_prototypes
