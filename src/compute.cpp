@@ -104,7 +104,6 @@ bool compute::launch_threads(int thread_count){
 }
 
 bool compute::copy_to_queue(const char* dest_addr, const char* origin_addr, const char* function_name, const char* on_success, const char* on_failure, const void* param, int paramlen){
-	if(strlen(function_name) == 0) int x = 10/0;
 	//std::cerr<<"Sending "<<function_name<<" to "<<dest_addr<<" from "<<origin_addr<<"\n";
 	//ensure compliance:
 	fail_false(!(strlen(dest_addr) > max_address_len));

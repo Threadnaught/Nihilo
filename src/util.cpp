@@ -22,6 +22,10 @@ char* read_file(const char* path, int* length){
 	fseek(file, 0, SEEK_END);
 	*length = ftell(file);
 	fseek(file, 0, SEEK_SET);
+	if(*length == -1){
+		std::cerr<<"attempt to read bad (probably non-existent) file:"<<path<<"\n";
+		return nullptr;
+	}
 	char* data = new char[*length];
 	fread(data, *length, 1, file);
 	fclose(file);
