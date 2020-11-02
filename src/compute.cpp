@@ -6,9 +6,13 @@
 
 #include "../include/platform.h"
 
+struct loaded_machine_registry{
+	std::map<compute::pub_key, machine> machines;
+	std::map<std::string, compute::pub_key> names;
+};
+
 thread::locker<std::queue<host_task*>> task_queue;
-thread::locker<std::map<compute::pub_key, machine>> local_machines;
-std::map<std::string, compute::pub_key> local_name_index; //shares local_machines locker (TODO: create struct to lock both in the same locker)
+thread::locker<loaded_machine_registry> local_machines;
 std::map<std::string, intercepts::intercept_func> platform_intercepts;
 
 bool compute::operator< (const pub_key k1, const pub_key k2){
@@ -47,8 +51,8 @@ bool compute::init(){
 		std::cerr<<"loading machine "<<pub_hex<<"\n";
 		machine* m = (machine*)recall::read(pub_hex, &m_len);
 		fail_false(m_len == sizeof(machine));
-		(*locals)[pub_conv(table+i)] = *m;
-		local_name_index[m->name] = pub_conv(m->keypair.ecc_pub);
+		locals->machines[pub_conv(table+i)] = *m;
+		locals->names[m->name] = pub_conv(m->keypair.ecc_pub);
 	}
 	local_machines.release();
 	delete table;
@@ -62,7 +66,7 @@ bool handle_individual_task(host_task* t){
 	//check if this call is intercepted
 	auto found = platform_intercepts.find(t->t.function_name);
 	unsigned char root[ecc_pub_size];
-	compute::get_root_machine(root);
+	fail_false(compute::resolve_local_machine("#root", root));
 	if(memcmp(root, dest_pub, ecc_pub_size) == 0 && found != platform_intercepts.end()){//check for intercepts
 		(*(found->second.func))(t);
 		return true;
@@ -137,8 +141,8 @@ bool compute::copy_to_queue(const char* dest_addr, const char* origin_addr, cons
 bool compute::get_priv(unsigned char* pub, unsigned char* priv_out){
 	//this O(log N) comparison no longer brings pain to my soul or shame to my descendents
 	auto m = local_machines.acquire();
-	auto it = m->find(pub_conv(pub));
-	if(it == m->end()){
+	auto it = m->machines.find(pub_conv(pub));
+	if(it == m->machines.end()){
 		local_machines.release();
 		return false;	
 	}
@@ -149,8 +153,8 @@ bool compute::get_priv(unsigned char* pub, unsigned char* priv_out){
 bool compute::new_machine(const char* name, unsigned char* pub_out){
 	//if name is set, it must not be a duplicate
 	if(name != nullptr){
-		local_machines.acquire();
-		if(local_name_index.find(name) != local_name_index.end()){
+		auto locals = local_machines.acquire();
+		if(locals->names.find(name) != locals->names.end()){
 			local_machines.release();
 			return false;
 		}
@@ -181,8 +185,9 @@ bool compute::new_machine(const char* name, unsigned char* pub_out){
 	free(table);
 	recall::release_lock();
 	//add to arrays:
-	(*local_machines.acquire())[pub_conv(m.keypair.ecc_pub)] = m;
-	local_name_index[name] = pub_conv(m.keypair.ecc_pub);
+	auto locals = local_machines.acquire();
+	locals->machines[pub_conv(m.keypair.ecc_pub)] = m;
+	locals->names[name] = pub_conv(m.keypair.ecc_pub);
 	local_machines.release();
 	return true;
 }
@@ -196,13 +201,6 @@ void* compute::get_wasm(unsigned char* pub, int* length){
 	recall::release_lock();
 	return wasm_data;
 }
-
-void compute::get_root_machine(unsigned char* pub_out){
-	local_machines.acquire();
-	memcpy(pub_out, local_name_index["root"].key, ecc_pub_size);
-	local_machines.release();
-}
-
 
 int locate_address_pivot(const char* address){
 	const char* pivot;
@@ -241,8 +239,8 @@ bool compute::resolve_local_machine(const char* address, unsigned char* target_p
 			bytes_to_hex_array(hhh, tgt_pub, ecc_pub_size);
 			auto ms = local_machines.acquire();
 			bool found = false;
-			auto it = ms->find(pub_conv(tgt_pub));
-			if(it != ms->end()){
+			auto it = ms->machines.find(pub_conv(tgt_pub));
+			if(it != ms->machines.end()){
 				found = true;
 				memcpy(target_pub_out, tgt_pub, ecc_pub_size);
 			}
@@ -250,9 +248,9 @@ bool compute::resolve_local_machine(const char* address, unsigned char* target_p
 			return found;
 		}
 		case '#':{
-			local_machines.acquire();
-			auto it = local_name_index.find(machine_target+1);
-			if(it == local_name_index.end()){
+			auto locals = local_machines.acquire();
+			auto it = locals->names.find(machine_target+1);
+			if(it == locals->names.end()){
 				local_machines.release();
 				fail_false(false);
 			}

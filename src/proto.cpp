@@ -197,8 +197,5 @@ bool compute::load_from_proto(cJSON* mach, const char* working_dir){
 	//load data:
 	cJSON* mach_data = cJSON_GetObjectItem(mach, "data");
 	fail_false(recurse_load_data(mach_data, current_node_path, cursor, current_node_path + sizeof(current_node_path), working_dir));
-	auto machines = local_machines.acquire();
-	//TODO: modify local_machines etc.
-	local_machines.release();
 	return true;
 }
