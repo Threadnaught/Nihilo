@@ -2,6 +2,6 @@
 	"target":{"name":"root"},
 	"data":{
 		"wasm":"file:../bin/net_example.wasm",
-		"server_address":"string:thr3adnaught.com~2E16ECB4DA60FEB208D24E53E9ED5E2601BE13D997469C3C5D6BBA4AB2D7C907"
+		"server_address":"string:nihilo_host~1B048D412183997D645BE152E4BFA51E872013F9436156293D90D685E32D667F"
 	}
 }

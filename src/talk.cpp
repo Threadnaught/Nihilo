@@ -133,31 +133,41 @@ void drop(int con_no){
 bool receive_body(int hostid, unsigned char* body){
 	//std::cerr<<"receiving body\n";
 	unsigned char dest_priv[ecc_priv_size];
-	fail_false(compute::get_priv(hosts[hostid].waiting_packet.dest_pub, dest_priv));
+	int encrypted_buffer_size;
+	int unencrypted_buffer_size;
+	unsigned char* unencrypted = nullptr;
+	wire_task* t;
+	int paramlen;
+	unsigned char* param;
+	fail_goto(compute::get_priv(hosts[hostid].waiting_packet.dest_pub, dest_priv));
 	unsigned char secret[shared_secret_size];
 	crypto::derrive_shared(dest_priv, hosts[hostid].waiting_packet.origin_pub, secret);
-	int encrypted_buffer_size = crypto::calc_encrypted_size(hosts[hostid].waiting_packet.contents_length);
+	encrypted_buffer_size = crypto::calc_encrypted_size(hosts[hostid].waiting_packet.contents_length);
 	//rounded to the nearest block, but without IV
-	int unencrypted_buffer_size = encrypted_buffer_size - aes_block_size;
-	unsigned char* unencrypted = new unsigned char[unencrypted_buffer_size];
-	fail_false(crypto::decrypt(secret, body, unencrypted_buffer_size, unencrypted));
-	wire_task* t = (wire_task*)unencrypted;
-	fail_false(memcmp(t->target_pub, hosts[hostid].waiting_packet.dest_pub, ecc_pub_size)==0);
+	unencrypted_buffer_size = encrypted_buffer_size - aes_block_size;
+	unencrypted = new unsigned char[unencrypted_buffer_size];
+	fail_goto(crypto::decrypt(secret, body, unencrypted_buffer_size, unencrypted));
+	t = (wire_task*)unencrypted;
+	fail_goto(memcmp(t->target_pub, hosts[hostid].waiting_packet.dest_pub, ecc_pub_size)==0);
 	//construct request on this side
 	char dest_addr[max_address_len];
 	dest_addr[0] = '~';
 	bytes_to_hex(hosts[hostid].waiting_packet.dest_pub, ecc_pub_size, dest_addr+1);
 	//if there is a parameter, attach it to the task
-	int paramlen = hosts[hostid].waiting_packet.contents_length-sizeof(wire_task);
-	unsigned char* param = paramlen==0?nullptr:unencrypted+sizeof(wire_task);
+	paramlen = hosts[hostid].waiting_packet.contents_length-sizeof(wire_task);
+	param = paramlen==0?nullptr:unencrypted+sizeof(wire_task);
 	char origin_addr[max_address_len];
 	inet_ntop(AF_INET, &hosts[hostid].addr, origin_addr, 15);
 	origin_addr[strlen(origin_addr)+1] = '\0';
 	origin_addr[strlen(origin_addr)] = '~';
 	bytes_to_hex(hosts[hostid].waiting_packet.origin_pub, ecc_pub_size, origin_addr + strlen(origin_addr));
 	compute::copy_to_queue(dest_addr, origin_addr, t->t.function_name, t->t.on_success, t->t.on_failure,param, paramlen);
-	delete unencrypted;//TODO: fix failure memory leak (maybe create a goto)
+	delete unencrypted;
 	return true;
+	fail:
+	if(unencrypted != nullptr)
+		delete unencrypted;
+	return false;
 }
 
 bool run_talk_worker(int port){
