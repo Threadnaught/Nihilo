@@ -84,4 +84,21 @@ namespace crypto{
 		fread(outbytes, 1, len, rand);
 		return 0;
 	}
+	
+	//writes the first n bytes of the sha256 of inbytes to outbytes
+	bool sha256_n_bytes(const void* inbytes, int inlen, unsigned char* hash, int n){
+		fail_false(n <= 32);
+		fail_false(n > 0);
+		unsigned char raw_hash[32];
+		mbedtls_sha256_context sha;
+		mbedtls_sha256_init(&sha);
+		//drop SHA256 of public key into pub_digest
+		fail_false(mbedtls_sha256_starts_ret(&sha, 0) == 0);
+		fail_false(mbedtls_sha256_update_ret(&sha, (unsigned char*)inbytes, inlen) == 0);
+		fail_false(mbedtls_sha256_finish_ret(&sha, raw_hash) == 0);
+		memcpy(hash, raw_hash, n);
+		//copy first ID_size bytes into id
+		mbedtls_sha256_free(&sha);
+		return true;
+	}
 }

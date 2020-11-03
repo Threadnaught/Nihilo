@@ -24,6 +24,8 @@ namespace crypto{
 	bool derrive_shared(const unsigned char* alice_priv, const unsigned char* bob_pub, unsigned char* secret_buf);
 	//misc functions:
 	int rng(void* state, unsigned char* outbytes, size_t len); //MUST BE CRYPTOGRAPHICALLY SECURE
+		//writes the first n bytes of the sha256 of inbytes to outbytes
+	bool sha256_n_bytes(const void* inbytes, int inlen, unsigned char* hash, int n);
 }
 
 namespace runtime{
