@@ -14,14 +14,203 @@
 
 thread::locker<std::queue<host_task*>> comm_queue;
 
+//origin and dest are not for the message
+struct origin_dest{
+	unsigned char origin_pub[ecc_pub_size];
+	unsigned char dest_pub[ecc_pub_size];
+};
+
+struct network_session{//TODO:create generic session for intra-host queues
+	bool session_finalized = false;
+	time_t timeout;
+	origin_dest pubs;
+	unsigned char encryption_key[shared_secret_size];
+	unsigned char peer_secret[session_secret_size];
+	unsigned int peer_message_count = 0;
+	unsigned char this_secret[session_secret_size];
+	unsigned int this_message_count = 0;
+};
+
+enum preamble_type : unsigned char{
+	create_session = 0,
+	finalise_session = 1,
+	body = 2,
+};
+
+struct preamble{
+	preamble_type type;
+	unsigned short message_length;
+};
+
 struct host{
 	int fd;
 	sockaddr_in addr; 
 	time_t timeout;
 	bool is_packet_waiting;
 	packet_header waiting_packet;
-	std::vector<machine> known_machines;
+
+	std::vector<network_session*> sessions;
+	bool is_preamble_waiting = false;
+	preamble waiting_preamble;
+	
+	//std::map<compute::pub_key, network_session*> next_sessions_from_here;
+	//std::map<std::array<unsigned char, session_secret_size>, network_session*> next_sessions_from_there
 };
+
+int get_waiting(int fd){
+	int count;
+	ioctl(fd, FIONREAD, &count);
+	return count;
+}
+
+//TODO: fail_goto for all these funcs
+
+//this code assumes shared_secret_size mod aes_block_size is 0
+
+//false from any of these functions should drop the whole connection immediatley
+bool encrypt_and_send(host* h, network_session* s, void* to_send, int to_send_len){
+	int enc_size = crypto::calc_encrypted_size(to_send_len);
+	void* unencrypted_buf = malloc(enc_size-aes_block_size);
+	memset(unencrypted_buf, 0, enc_size-aes_block_size);
+	memcpy(unencrypted_buf, to_send, to_send_len);
+	void* encrypted_buf = malloc(enc_size);
+	fail_false(crypto::encrypt(s->encryption_key, (unsigned char*)unencrypted_buf, to_send_len, (unsigned char*)encrypted_buf));
+	write(h->fd, encrypted_buf, enc_size);
+	free(encrypted_buf);
+	free(unencrypted_buf);
+	return true;
+}
+bool send_create_session(host* h, unsigned char* origin_pub, unsigned char* dest_pub){
+	network_session* ns = new network_session();
+	//get the encryption key for this session:
+	unsigned char origin_priv[ecc_priv_size];
+	fail_false(compute::get_priv(origin_pub, origin_priv));
+	crypto::derrive_shared(origin_priv, dest_pub, ns->encryption_key);
+	//create and send the preamble
+	preamble p {
+		.type = preamble_type::create_session,
+		.message_length=(short unsigned)(sizeof(origin_dest)+crypto::calc_encrypted_size(session_secret_size))
+	};
+	write(h->fd, &p, sizeof(preamble));
+	//create and send the origin/dest for this session:
+	memcpy(ns->pubs.origin_pub, origin_pub, ecc_pub_size);
+	memcpy(ns->pubs.dest_pub, dest_pub, ecc_pub_size);
+	write(h->fd, &ns->pubs, sizeof(origin_dest));
+	//create, encrypt and send this side's session secret
+	crypto::rng(nullptr, ns->this_secret, session_secret_size);
+	fail_false(encrypt_and_send(h, ns, ns->this_secret, session_secret_size));
+	//TODO: timeout (short)
+	h->sessions.push_back(ns);
+	return true;
+}
+bool handle_create_session(host* h, void* message){
+	fail_false(h->waiting_preamble.message_length == sizeof(origin_dest)+crypto::calc_encrypted_size(session_secret_size));
+	network_session* ns = new network_session();
+	origin_dest* inbound_origin_dest = (origin_dest*)message;
+	//swap origin and dest around (our destination is the peer's origin)
+	memcpy(ns->pubs.origin_pub, inbound_origin_dest->dest_pub, sizeof(origin_dest));
+	memcpy(ns->pubs.dest_pub, inbound_origin_dest->origin_pub, sizeof(origin_dest));
+	//derrive shared ecc key:
+	unsigned char dest_priv[ecc_priv_size];
+	fail_false(compute::get_priv(ns->pubs.dest_pub, dest_priv));
+	fail_false(crypto::derrive_shared(dest_priv, ns->pubs.origin_pub, ns->encryption_key));
+	//get peer's secret:
+	crypto::decrypt(ns->encryption_key, ((unsigned char*)message) + sizeof(origin_dest), session_secret_size, ns->peer_secret);
+	//create our secret:
+	crypto::rng(nullptr, ns->this_secret, session_secret_size);
+	//construct and send response preamble:
+	preamble p {
+		.type = preamble_type::finalise_session,
+		.message_length=(short unsigned)(sizeof(origin_dest)+crypto::calc_encrypted_size(session_secret_size*2))
+	};
+	write(h->fd, &p, sizeof(preamble));
+	//send origin dest representing this session:
+	write(h->fd, &ns->pubs, sizeof(origin_dest));
+	//construct and encrypt secrets:
+	unsigned char unencrypted_secrets[session_secret_size*2];
+	unsigned char encrypted_secrets[crypto::calc_encrypted_size(session_secret_size*2)];
+	memcpy(unencrypted_secrets, ns->this_secret, session_secret_size);
+	memcpy(unencrypted_secrets+session_secret_size, ns->peer_secret, session_secret_size);
+	fail_false(crypto::encrypt(ns->encryption_key, unencrypted_secrets, session_secret_size*2, encrypted_secrets));
+	write(h->fd, encrypted_secrets, crypto::calc_encrypted_size(session_secret_size*2));
+	//TODO: timeout (short)
+	h->sessions.push_back(ns);
+	return true;
+}
+bool handle_finalise_session(host* h, void* message){
+	fail_false(h->waiting_preamble.message_length == sizeof(origin_dest)+crypto::calc_encrypted_size(session_secret_size*2));
+	//create origin/dest to search for:
+	origin_dest* inbound_origin_dest = (origin_dest*)message;
+	//swap origin and dest around (our destination is the peer's origin)
+	origin_dest search_target;
+	memcpy(search_target.origin_pub, inbound_origin_dest->dest_pub, sizeof(origin_dest));
+	memcpy(search_target.dest_pub, inbound_origin_dest->origin_pub, sizeof(origin_dest));
+	//TODO: index this linear search
+	network_session* sess = nullptr;
+	for(auto it = h->sessions.begin(); it != h->sessions.end(); it++){
+		if(memcmp(&search_target, &(*it)->pubs, sizeof(origin_dest)) == 0){
+			sess = (*it);
+			break;
+		}
+	}
+	fail_false(sess != nullptr);
+	unsigned char decrypted_secrets[shared_secret_size*2];
+	//first: verify our secret was parroted back to us:
+	//our is second because otherwise an attacker could forge a session (that they
+	//couldn't use) by repeating our session create packet followed by 16 random bytes
+	fail_false(crypto::decrypt(sess->encryption_key, ((unsigned char*)message) + sizeof(origin_dest), shared_secret_size*2, decrypted_secrets));
+	//copy our
+	fail_false(memcmp(decrypted_secrets+shared_secret_size, sess->this_secret, shared_secret_size) == 0);
+	memcpy(sess->peer_secret, decrypted_secrets, shared_secret_size);
+	//TODO: timeout (short)
+	//TODO: send body of session creator????
+	return true;
+}
+bool send_body(host* h, network_session* s){
+	return true;
+}
+bool handle_body(host* h, void* message){
+	return true;
+}
+
+//if false is returned, the connection should be dropped
+bool receive_comms(host* h){
+	int count = get_waiting(h->fd);
+	//if there are no packets, skip this host
+	if(count == 0)
+		return true;
+	//if there isn't a preamble that's just been received, receive it and move on
+	if(!h->is_preamble_waiting){
+		if(count < sizeof(preamble))//if we have not yet received the whole preamble, continue to next host
+			return true;
+		h->is_preamble_waiting = true;
+		read(h->fd, &h->waiting_preamble, sizeof(preamble));
+		fail_false(h->waiting_preamble.message_length < max_packet_size);//enforce reasonableness
+		return true;
+	}
+	if(count < sizeof(h->waiting_preamble.message_length))
+		return true;//ditto with the message
+	h->is_preamble_waiting = false;
+	void* received_message = malloc(h->waiting_preamble.message_length);
+	bool ret = false;
+	switch (h->waiting_preamble.type){//speaks for itself, really
+		case preamble_type::create_session:
+			ret = handle_create_session(h, received_message);
+			break;
+		case preamble_type::finalise_session:
+			ret = handle_finalise_session(h, received_message);
+			break;
+		case preamble_type::body:
+			ret = handle_body(h, received_message);
+			break;
+		default:
+			std::cerr<<"unrecognised preamble type:"<<h->waiting_preamble.type<<"\n";
+			ret = false;
+	}
+	free(received_message);
+	fail_false(ret);
+	return true;
+}
 
 std::vector<host> hosts;
 
@@ -232,8 +421,7 @@ bool run_talk_worker(int port){
 		for(int i = 0; i < hosts.size(); i++){
 			//count waiting bytes
 			int count;
-			ioctl(hosts[i].fd, FIONREAD, &count);
-			if(count > 0){
+			if((count = get_waiting(hosts[i].fd)) > 0){
 				//if no packet is currently waiting, and a header is in the pipe...
 				if((!hosts[i].is_packet_waiting) && count >= sizeof(packet_header)){
 					//read the header
