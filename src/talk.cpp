@@ -81,11 +81,12 @@ bool encrypt_and_send(host* h, network_session* s, void* to_send, int to_send_le
 	return true;
 }
 bool send_create_session(host* h, unsigned char* origin_pub, unsigned char* dest_pub){
+	std::cerr<<"sending create\n";
 	network_session* ns = new network_session();
 	//get the encryption key for this session:
 	unsigned char origin_priv[ecc_priv_size];
 	fail_false(compute::get_priv(origin_pub, origin_priv));
-	crypto::derrive_shared(origin_priv, dest_pub, ns->encryption_key);
+	fail_false(crypto::derrive_shared(origin_priv, dest_pub, ns->encryption_key));
 	//create and send the preamble
 	preamble p {
 		.type = preamble_type::create_session,
@@ -104,6 +105,7 @@ bool send_create_session(host* h, unsigned char* origin_pub, unsigned char* dest
 	return true;
 }
 bool handle_create_session(host* h, void* message){
+	std::cerr<<"handling create\n";
 	fail_false(h->waiting_preamble.message_length == sizeof(origin_dest)+crypto::calc_encrypted_size(session_secret_size));
 	network_session* ns = new network_session();
 	origin_dest* inbound_origin_dest = (origin_dest*)message;
@@ -112,8 +114,10 @@ bool handle_create_session(host* h, void* message){
 	memcpy(ns->pubs.dest_pub, inbound_origin_dest->origin_pub, sizeof(origin_dest));
 	//derrive shared ecc key:
 	unsigned char dest_priv[ecc_priv_size];
-	fail_false(compute::get_priv(ns->pubs.dest_pub, dest_priv));
-	fail_false(crypto::derrive_shared(dest_priv, ns->pubs.origin_pub, ns->encryption_key));
+	fail_false(compute::get_priv(inbound_origin_dest->dest_pub, dest_priv));
+	fail_false(crypto::derrive_shared(dest_priv, inbound_origin_dest->origin_pub, ns->encryption_key));
+	bytes_to_hex_array(shared_hex, ns->encryption_key, shared_secret_size);
+	std::cerr<<"secret:"<<shared_hex<<"\n";
 	//get peer's secret:
 	crypto::decrypt(ns->encryption_key, ((unsigned char*)message) + sizeof(origin_dest), session_secret_size, ns->peer_secret);
 	//create our secret:
@@ -138,6 +142,7 @@ bool handle_create_session(host* h, void* message){
 	return true;
 }
 bool handle_finalise_session(host* h, void* message){
+	std::cerr<<"handling finalize\n";
 	fail_false(h->waiting_preamble.message_length == sizeof(origin_dest)+crypto::calc_encrypted_size(session_secret_size*2));
 	//create origin/dest to search for:
 	origin_dest* inbound_origin_dest = (origin_dest*)message;
@@ -146,22 +151,21 @@ bool handle_finalise_session(host* h, void* message){
 	memcpy(search_target.origin_pub, inbound_origin_dest->dest_pub, sizeof(origin_dest));
 	memcpy(search_target.dest_pub, inbound_origin_dest->origin_pub, sizeof(origin_dest));
 	//TODO: index this linear search
-	network_session* sess = nullptr;
+	network_session* ns = nullptr;
 	for(auto it = h->sessions.begin(); it != h->sessions.end(); it++){
 		if(memcmp(&search_target, &(*it)->pubs, sizeof(origin_dest)) == 0){
-			sess = (*it);
+			ns = (*it);
 			break;
 		}
 	}
-	fail_false(sess != nullptr);
+	fail_false(ns != nullptr);
 	unsigned char decrypted_secrets[shared_secret_size*2];
 	//first: verify our secret was parroted back to us:
-	//our is second because otherwise an attacker could forge a session (that they
+	//ours is second because otherwise an attacker could forge a session (that they
 	//couldn't use) by repeating our session create packet followed by 16 random bytes
-	fail_false(crypto::decrypt(sess->encryption_key, ((unsigned char*)message) + sizeof(origin_dest), shared_secret_size*2, decrypted_secrets));
-	//copy our
-	fail_false(memcmp(decrypted_secrets+shared_secret_size, sess->this_secret, shared_secret_size) == 0);
-	memcpy(sess->peer_secret, decrypted_secrets, shared_secret_size);
+	fail_false(crypto::decrypt(ns->encryption_key, ((unsigned char*)message) + sizeof(origin_dest), shared_secret_size*2, decrypted_secrets));
+	fail_false(memcmp(decrypted_secrets+shared_secret_size, ns->this_secret, shared_secret_size) == 0);
+	memcpy(ns->peer_secret, decrypted_secrets, shared_secret_size);
 	//TODO: timeout (short)
 	//TODO: send body of session creator????
 	return true;
@@ -184,14 +188,15 @@ bool receive_comms(host* h){
 		if(count < sizeof(preamble))//if we have not yet received the whole preamble, continue to next host
 			return true;
 		h->is_preamble_waiting = true;
-		read(h->fd, &h->waiting_preamble, sizeof(preamble));
-		fail_false(h->waiting_preamble.message_length < max_packet_size);//enforce reasonableness
+		fail_false(read(h->fd, &h->waiting_preamble, sizeof(preamble)) == sizeof(preamble));
+		fail_false(h->waiting_preamble.message_length <= max_packet_size);//enforce reasonableness
 		return true;
 	}
-	if(count < sizeof(h->waiting_preamble.message_length))
+	if(count < h->waiting_preamble.message_length)
 		return true;//ditto with the message
 	h->is_preamble_waiting = false;
 	void* received_message = malloc(h->waiting_preamble.message_length);
+	fail_false(read(h->fd, received_message, h->waiting_preamble.message_length) == h->waiting_preamble.message_length);
 	bool ret = false;
 	switch (h->waiting_preamble.type){//speaks for itself, really
 		case preamble_type::create_session:
@@ -360,10 +365,66 @@ bool receive_body(int hostid, unsigned char* body){
 }
 
 bool run_talk_worker(int port){
+	//TODO: remove
+	bool TEMP_PING = port == 0;
+	port = tcp_port;
+
+
+	
+
+	host fresh_con;
+
+	if(TEMP_PING){
+		host h;
+		//open socket:
+		int connection_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+		fail_false(connection_no >= 0);
+		//DNS/IP lookup:
+		hostent* target_ent = gethostbyname("nihilo_host");
+		fail_false(target_ent != nullptr);
+		
+		memset(&fresh_con.addr, 0, sizeof(sockaddr_in));
+		fresh_con.addr.sin_family = AF_INET;
+		memcpy(&fresh_con.addr.sin_addr.s_addr, target_ent->h_addr_list[0], target_ent->h_length);
+		fresh_con.addr.sin_port = htons(tcp_port);
+		fail_false(connect(connection_no, (sockaddr*)&fresh_con.addr, sizeof(sockaddr_in)) >= 0);
+		fresh_con.fd = connection_no;
+		hex_to_bytes_array(dest, "24DF0DBA4734475616B1B19E3DD82093FE7A7A7187CDE2ACD4A12386B60DE2BC", ecc_pub_size);//TODO
+		unsigned char orig[ecc_pub_size];
+		compute::resolve_local_machine("#root", orig);
+		send_create_session(&fresh_con, orig, dest);
+	} else {
+		//create listener:
+		int listener_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+		fail_false(listener_no > 0);
+		//configure inbound endpoint:
+		sockaddr_in addr;
+		memset(&addr, 0, sizeof(sockaddr_in));
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(port);
+		addr.sin_addr.s_addr = INADDR_ANY;
+		//bind inbound endpoint:
+		fail_false(bind(listener_no, (sockaddr*)&addr, sizeof(sockaddr_in)) == 0);
+		fail_false(listen(listener_no,5) == 0);
+		pollfd listener_poll;
+		listener_poll.fd = listener_no;
+		listener_poll.events = POLLIN;
+		listener_poll.revents = 0;
+		while(poll(&listener_poll, 1, 0) < 0);
+		socklen_t other_len = sizeof(sockaddr_in);
+		fresh_con.fd = accept(listener_no, (sockaddr*) &fresh_con.addr, &other_len);
+	}
+
+	while(receive_comms(&fresh_con)){
+		usleep(100);
+	}
+
+	return true;
+}
+bool run_talk_worker_old(int port){
 	//create listener:
 	int listener_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
 	fail_false(listener_no > 0);
-
 	//configure inbound endpoint:
 	sockaddr_in addr;
 	memset(&addr, 0, sizeof(sockaddr_in));
@@ -372,7 +433,7 @@ bool run_talk_worker(int port){
 	addr.sin_addr.s_addr = INADDR_ANY;
 	//bind inbound endpoint:
 	fail_false(bind(listener_no, (sockaddr*)&addr, sizeof(sockaddr_in)) == 0);
-	listen(listener_no,5);
+	fail_false(listen(listener_no,5) == 0);
 	//std::cerr<<"listening\n";
 	while(1){
 		//transmit comm queue
@@ -402,7 +463,7 @@ bool run_talk_worker(int port){
 		listener_poll.fd = listener_no;
 		listener_poll.events = POLLIN;
 		listener_poll.revents = 0;
-		poll(&listener_poll, hosts.size()+1, 0);
+		poll(&listener_poll, hosts.size()+1, 0);//TODO: this looks like a bug?
 		//if there is an incoming connection...
 		if(listener_poll.revents != 0){
 			host con;
