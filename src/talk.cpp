@@ -13,13 +13,16 @@
 #include "../include/platform.h"
 
 thread::locker<std::queue<host_task*>> comm_queue;
-
+//TODO: allow for multiple sessions between the same origin and dest (fork session)
 //origin and dest are not for the message
 struct origin_dest{
 	unsigned char origin_pub[ecc_pub_size];
 	unsigned char dest_pub[ecc_pub_size];
 };
 
+bool operator< (const origin_dest o1, const origin_dest o2){
+	return memcmp(&o1, &o2, sizeof(origin_dest)) < 0;
+}
 struct network_session{//TODO:create generic session for intra-host queues
 	bool session_finalized = false;
 	time_t timeout;
@@ -29,12 +32,16 @@ struct network_session{//TODO:create generic session for intra-host queues
 	unsigned int peer_message_count = 0;
 	unsigned char this_secret[session_secret_size];
 	unsigned int this_message_count = 0;
+	bool calc_hash(bool ours, unsigned char* hash_out){
+		fail_false(crypto::sha256_n_bytes((ours) ? (this_secret) : (peer_secret), shared_secret_size+sizeof(unsigned int), hash_out, shared_secret_size));
+		return true;
+	}
 };
 
 enum preamble_type : unsigned char{
 	create_session = 0,
 	finalise_session = 1,
-	body = 2,
+	session_message = 2,
 };
 
 struct preamble{
@@ -49,13 +56,12 @@ struct host{
 	bool is_packet_waiting;
 	packet_header waiting_packet;
 
-	std::vector<network_session*> sessions;
+	std::map<origin_dest, network_session*> sessions;
+	std::map<std::array<unsigned char, session_secret_size>, origin_dest> next_inbound_session_hashes;
 	bool is_preamble_waiting = false;
 	preamble waiting_preamble;
-	
-	//std::map<compute::pub_key, network_session*> next_sessions_from_here;
-	//std::map<std::array<unsigned char, session_secret_size>, network_session*> next_sessions_from_there
 };
+
 
 int get_waiting(int fd){
 	int count;
@@ -68,13 +74,15 @@ int get_waiting(int fd){
 //this code assumes shared_secret_size mod aes_block_size is 0
 
 //false from any of these functions should drop the whole connection immediatley
-bool encrypt_and_send(host* h, network_session* s, void* to_send, int to_send_len){
+bool encrypt_and_send(host* h, network_session* s, void* to_send, int to_send_len, unsigned char* init_vector=nullptr){
 	int enc_size = crypto::calc_encrypted_size(to_send_len);
 	void* unencrypted_buf = malloc(enc_size-aes_block_size);
 	memset(unencrypted_buf, 0, enc_size-aes_block_size);
 	memcpy(unencrypted_buf, to_send, to_send_len);
 	void* encrypted_buf = malloc(enc_size);
-	fail_false(crypto::encrypt(s->encryption_key, (unsigned char*)unencrypted_buf, to_send_len, (unsigned char*)encrypted_buf));
+	if(init_vector != nullptr)
+		memcpy(encrypted_buf, init_vector, aes_block_size);
+	fail_false(crypto::encrypt(s->encryption_key, (unsigned char*)unencrypted_buf, to_send_len, (unsigned char*)encrypted_buf, init_vector != nullptr));
 	write(h->fd, encrypted_buf, enc_size);
 	free(encrypted_buf);
 	free(unencrypted_buf);
@@ -101,7 +109,7 @@ bool send_create_session(host* h, unsigned char* origin_pub, unsigned char* dest
 	crypto::rng(nullptr, ns->this_secret, session_secret_size);
 	fail_false(encrypt_and_send(h, ns, ns->this_secret, session_secret_size));
 	//TODO: timeout (short)
-	h->sessions.push_back(ns);
+	h->sessions[ns->pubs] = ns;
 	return true;
 }
 bool handle_create_session(host* h, void* message){
@@ -116,8 +124,6 @@ bool handle_create_session(host* h, void* message){
 	unsigned char dest_priv[ecc_priv_size];
 	fail_false(compute::get_priv(inbound_origin_dest->dest_pub, dest_priv));
 	fail_false(crypto::derrive_shared(dest_priv, inbound_origin_dest->origin_pub, ns->encryption_key));
-	bytes_to_hex_array(shared_hex, ns->encryption_key, shared_secret_size);
-	std::cerr<<"secret:"<<shared_hex<<"\n";
 	//get peer's secret:
 	crypto::decrypt(ns->encryption_key, ((unsigned char*)message) + sizeof(origin_dest), session_secret_size, ns->peer_secret);
 	//create our secret:
@@ -138,7 +144,11 @@ bool handle_create_session(host* h, void* message){
 	fail_false(crypto::encrypt(ns->encryption_key, unencrypted_secrets, session_secret_size*2, encrypted_secrets));
 	write(h->fd, encrypted_secrets, crypto::calc_encrypted_size(session_secret_size*2));
 	//TODO: timeout (short)
-	h->sessions.push_back(ns);
+	ns->session_finalized = true;
+	std::array<unsigned char, session_secret_size> next_inbound_hash;
+	ns->calc_hash(false, next_inbound_hash.data());
+	h->next_inbound_session_hashes[next_inbound_hash] = ns->pubs;
+	h->sessions[ns->pubs] = ns;
 	return true;
 }
 bool handle_finalise_session(host* h, void* message){
@@ -151,14 +161,9 @@ bool handle_finalise_session(host* h, void* message){
 	memcpy(search_target.origin_pub, inbound_origin_dest->dest_pub, sizeof(origin_dest));
 	memcpy(search_target.dest_pub, inbound_origin_dest->origin_pub, sizeof(origin_dest));
 	//TODO: index this linear search
-	network_session* ns = nullptr;
-	for(auto it = h->sessions.begin(); it != h->sessions.end(); it++){
-		if(memcmp(&search_target, &(*it)->pubs, sizeof(origin_dest)) == 0){
-			ns = (*it);
-			break;
-		}
-	}
-	fail_false(ns != nullptr);
+	auto it = h->sessions.find(search_target);
+	fail_false(it != h->sessions.end());
+	network_session* ns = it->second;
 	unsigned char decrypted_secrets[shared_secret_size*2];
 	//first: verify our secret was parroted back to us:
 	//ours is second because otherwise an attacker could forge a session (that they
@@ -166,14 +171,19 @@ bool handle_finalise_session(host* h, void* message){
 	fail_false(crypto::decrypt(ns->encryption_key, ((unsigned char*)message) + sizeof(origin_dest), shared_secret_size*2, decrypted_secrets));
 	fail_false(memcmp(decrypted_secrets+shared_secret_size, ns->this_secret, shared_secret_size) == 0);
 	memcpy(ns->peer_secret, decrypted_secrets, shared_secret_size);
+	ns->session_finalized = true;
+	std::array<unsigned char, session_secret_size> next_inbound_hash;
+	ns->calc_hash(false, next_inbound_hash.data());
+	h->next_inbound_session_hashes[next_inbound_hash] = ns->pubs;
 	//TODO: timeout (short)
 	//TODO: send body of session creator????
+	std::cerr<<"established!\n";
 	return true;
 }
 bool send_body(host* h, network_session* s){
 	return true;
 }
-bool handle_body(host* h, void* message){
+bool handle_session_message(host* h, void* message){
 	return true;
 }
 
@@ -205,8 +215,8 @@ bool receive_comms(host* h){
 		case preamble_type::finalise_session:
 			ret = handle_finalise_session(h, received_message);
 			break;
-		case preamble_type::body:
-			ret = handle_body(h, received_message);
+		case preamble_type::session_message:
+			ret = handle_session_message(h, received_message);
 			break;
 		default:
 			std::cerr<<"unrecognised preamble type:"<<h->waiting_preamble.type<<"\n";

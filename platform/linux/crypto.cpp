@@ -9,7 +9,7 @@
 #include"../../include/platform.h"
 
 namespace crypto{
-	bool encrypt(const unsigned char* secret, const unsigned char* to_encrypt, int to_encrypt_len, unsigned char* encrypted_buf){
+	bool encrypt(const unsigned char* secret, const unsigned char* to_encrypt, int to_encrypt_len, unsigned char* encrypted_buf, bool iv_already_populated){
 		//verify valid size:
 		fail_false(to_encrypt_len % aes_block_size == 0);
 		mbedtls_aes_context aes;
@@ -19,7 +19,8 @@ namespace crypto{
 		//start with initialization vector:
 		unsigned char* init_vector_source = encrypted_buf;
 		encrypted_buf += aes_block_size;
-		rng(nullptr, init_vector_source, aes_block_size);
+		if(!iv_already_populated)
+			rng(nullptr, init_vector_source, aes_block_size);
 		//mbedtls_aes_crypt_cbc alters IV buffer
 		unsigned char init_vector[aes_block_size];
 		memcpy(init_vector, init_vector_source, aes_block_size);

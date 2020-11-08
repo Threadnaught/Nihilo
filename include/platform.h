@@ -17,7 +17,7 @@ namespace recall{
 
 namespace crypto{
 	//AES functions:
-	bool encrypt(const unsigned char* secret, const unsigned char* to_encrypt, int to_encrypt_len, unsigned char* encrypted_buf);
+	bool encrypt(const unsigned char* secret, const unsigned char* to_encrypt, int to_encrypt_len, unsigned char* encrypted_buf, bool iv_already_populated=false);
 	bool decrypt(const unsigned char* secret, unsigned char* to_decrypt, int to_decrypt_len, unsigned char* decrypted_buf);
 	//ECDH functions:
 	bool gen_ecdh_keypair(unsigned char* pub, unsigned char* priv);
