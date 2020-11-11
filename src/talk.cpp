@@ -13,7 +13,8 @@
 #include "../include/platform.h"
 
 thread::locker<std::queue<host_task*>> comm_queue;
-//TODO: allow for multiple sessions between the same origin and dest (fork session)
+//TODO: allow for multiple sessions between the same origin and dest (fork session)???????????????
+//TODO: crypto comparison
 //origin and dest are not for the message
 struct origin_dest{
 	unsigned char origin_pub[ecc_pub_size];
@@ -32,6 +33,9 @@ struct network_session{//TODO:create generic session for intra-host queues
 	unsigned int peer_message_count = 0;
 	unsigned char this_secret[session_secret_size];
 	unsigned int this_message_count = 0;
+	std::queue<host_task*> waiting_for_transmission; //stores tasks while connection is not finalised
+	std::vector<host_task*> waiting_for_response;
+	//INBOUND USES OURS, OUTBOUND USES THEIRS. THIS IS TO PREVENT MESSAGE DUPLICATION ATTACKS. 
 	bool calc_hash(bool ours, unsigned char* hash_out){
 		fail_false(crypto::sha256_n_bytes((ours) ? (this_secret) : (peer_secret), shared_secret_size+sizeof(unsigned int), hash_out, shared_secret_size));
 		return true;
@@ -41,7 +45,7 @@ struct network_session{//TODO:create generic session for intra-host queues
 enum preamble_type : unsigned char{
 	create_session = 0,
 	finalise_session = 1,
-	session_message = 2,
+	session_task = 2,
 };
 
 struct preamble{
@@ -71,7 +75,61 @@ int get_waiting(int fd){
 
 //TODO: fail_goto for all these funcs
 
-//this code assumes shared_secret_size mod aes_block_size is 0
+//TODO: this code assumes shared_secret_size mod aes_block_size is 0
+
+//IV is remote hash (ask me what that means)
+bool send_task(host* h, network_session* s, host_task* t){
+	//TEMP
+	int pre_pad_length = sizeof(session_wire_task) + t->param_length /*pad goes here*/ + aes_block_size;
+	int total_encrypted_length = crypto::calc_encrypted_size(pre_pad_length);
+	int post_pad_length = total_encrypted_length - aes_block_size;
+	unsigned char* decrypted = new unsigned char[post_pad_length];
+	session_wire_task* swt = (session_wire_task*)decrypted;
+	memcpy(swt->peer_secret, s->peer_secret, session_secret_size);
+	swt->length_anomaly = post_pad_length - pre_pad_length;
+	memcpy(&swt->t, &t->t, sizeof(common_task));
+	memcpy((swt+1), (t+1), t->param_length);
+	unsigned char* pad_start = ((unsigned char*)(t+1))+t->param_length;
+	crypto::rng(nullptr, pad_start, swt->length_anomaly);
+	unsigned char* checksum_start = pad_start + swt->length_anomaly;
+	fail_false(crypto::sha256_n_bytes(decrypted, checksum_start-decrypted, decrypted, aes_block_size));
+	unsigned char* encrypted = new unsigned char[total_encrypted_length];
+	fail_false(s->calc_hash(false, encrypted));
+	s->peer_message_count++;
+	fail_false(crypto::encrypt(s->encryption_key, decrypted, post_pad_length, encrypted, true));
+	preamble p{
+		.type = preamble_type::session_task,
+		.message_length = (short unsigned int)total_encrypted_length
+	};
+	fail_false(write(h->fd, &p, sizeof(preamble)) == sizeof(preamble));
+	fail_false(write(h->fd, encrypted, total_encrypted_length));
+	delete encrypted;
+	delete decrypted;
+	///TEMP
+	return true;
+}
+bool handle_session_task(host* h, void* message){
+	fail_false(h->waiting_preamble.message_length % aes_block_size == 0);
+	std::array<unsigned char, session_secret_size> searching_for;
+	memcpy(searching_for.data(), message, session_secret_size);
+	auto found = h->next_inbound_session_hashes.find(searching_for);//TODO: eval whether this is vulnerable to a timing attack?? (wait for 500ms to send negative response??)
+	fail_false(found != h->next_inbound_session_hashes.end());//TODO: see above
+	network_session* ns = h->sessions[found->second];
+	int padded_decrypted_size = h->waiting_preamble.message_length-aes_block_size;
+	unsigned char* decypted_padded = new unsigned char[padded_decrypted_size];
+	fail_false(crypto::decrypt(ns->encryption_key, (unsigned char*)message, padded_decrypted_size, decypted_padded));
+	unsigned char sha[aes_block_size];
+	fail_false(crypto::sha256_n_bytes(message, padded_decrypted_size - aes_block_size, sha, aes_block_size));
+	fail_false(memcmp(sha, ((unsigned char*)message)+(padded_decrypted_size - aes_block_size), aes_block_size) == 0);//TODO: see above
+	session_wire_task* swt = (session_wire_task*)message;
+	fail_false(memcmp(swt->peer_secret, ns->this_secret, session_secret_size));//TODO: see above
+	int param_length = padded_decrypted_size-sizeof(session_wire_task)-aes_block_size-(swt->length_anomaly & 0x0F);
+	
+	std::cerr<<"received task name:"<<swt->t.function_name<<"\n";
+
+	ns->this_message_count++;
+	return true;
+}
 
 //false from any of these functions should drop the whole connection immediatley
 bool encrypt_and_send(host* h, network_session* s, void* to_send, int to_send_len, unsigned char* init_vector=nullptr){
@@ -110,6 +168,11 @@ bool send_create_session(host* h, unsigned char* origin_pub, unsigned char* dest
 	fail_false(encrypt_and_send(h, ns, ns->this_secret, session_secret_size));
 	//TODO: timeout (short)
 	h->sessions[ns->pubs] = ns;
+	//TEMP
+	host_task* ht = new host_task();
+	strcpy(ht->t.function_name, "shit");
+	ns->waiting_for_transmission.emplace(ht);
+	///TEMP
 	return true;
 }
 bool handle_create_session(host* h, void* message){
@@ -146,7 +209,7 @@ bool handle_create_session(host* h, void* message){
 	//TODO: timeout (short)
 	ns->session_finalized = true;
 	std::array<unsigned char, session_secret_size> next_inbound_hash;
-	ns->calc_hash(false, next_inbound_hash.data());
+	ns->calc_hash(true, next_inbound_hash.data());
 	h->next_inbound_session_hashes[next_inbound_hash] = ns->pubs;
 	h->sessions[ns->pubs] = ns;
 	return true;
@@ -173,17 +236,16 @@ bool handle_finalise_session(host* h, void* message){
 	memcpy(ns->peer_secret, decrypted_secrets, shared_secret_size);
 	ns->session_finalized = true;
 	std::array<unsigned char, session_secret_size> next_inbound_hash;
-	ns->calc_hash(false, next_inbound_hash.data());
+	ns->calc_hash(true, next_inbound_hash.data());
 	h->next_inbound_session_hashes[next_inbound_hash] = ns->pubs;
 	//TODO: timeout (short)
-	//TODO: send body of session creator????
+	while(ns->waiting_for_transmission.size() > 0){//TODO: consider DoS from stuffing this queue full of items
+		host_task* ht = ns->waiting_for_transmission.front();
+		ns->waiting_for_transmission.pop();
+		fail_false(send_task(h, ns, ht));
+		delete ht;
+	}
 	std::cerr<<"established!\n";
-	return true;
-}
-bool send_body(host* h, network_session* s){
-	return true;
-}
-bool handle_session_message(host* h, void* message){
 	return true;
 }
 
@@ -215,8 +277,8 @@ bool receive_comms(host* h){
 		case preamble_type::finalise_session:
 			ret = handle_finalise_session(h, received_message);
 			break;
-		case preamble_type::session_message:
-			ret = handle_session_message(h, received_message);
+		case preamble_type::session_task:
+			ret = handle_session_task(h, received_message);
 			break;
 		default:
 			std::cerr<<"unrecognised preamble type:"<<h->waiting_preamble.type<<"\n";

@@ -61,6 +61,11 @@ struct wire_task{ //task on the wire
 	unsigned char target_pub[ecc_pub_size];
 	common_task t;
 };
+struct session_wire_task{
+	unsigned char peer_secret[session_secret_size];
+	unsigned char length_anomaly; //how manny bytes shorter than the encrypted length is the unencrypted length
+	common_task t;
+};
 
 namespace crypto{
 	int calc_encrypted_size(int bodylen);
