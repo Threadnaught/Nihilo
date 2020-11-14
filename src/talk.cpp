@@ -84,15 +84,16 @@ bool send_task(host* h, network_session* s, host_task* t){
 	int total_encrypted_length = crypto::calc_encrypted_size(pre_pad_length);
 	int post_pad_length = total_encrypted_length - aes_block_size;
 	unsigned char* decrypted = new unsigned char[post_pad_length];
+	memset(decrypted, 0, post_pad_length);
 	session_wire_task* swt = (session_wire_task*)decrypted;
 	memcpy(swt->peer_secret, s->peer_secret, session_secret_size);
 	swt->length_anomaly = post_pad_length - pre_pad_length;
 	memcpy(&swt->t, &t->t, sizeof(common_task));
 	memcpy((swt+1), (t+1), t->param_length);
-	unsigned char* pad_start = ((unsigned char*)(t+1))+t->param_length;
+	unsigned char* pad_start = ((unsigned char*)(swt+1))+t->param_length;
 	crypto::rng(nullptr, pad_start, swt->length_anomaly);
 	unsigned char* checksum_start = pad_start + swt->length_anomaly;
-	fail_false(crypto::sha256_n_bytes(decrypted, checksum_start-decrypted, decrypted, aes_block_size));
+	fail_false(crypto::sha256_n_bytes(decrypted, checksum_start-decrypted, checksum_start, aes_block_size));
 	unsigned char* encrypted = new unsigned char[total_encrypted_length];
 	fail_false(s->calc_hash(false, encrypted));
 	s->peer_message_count++;
@@ -109,6 +110,7 @@ bool send_task(host* h, network_session* s, host_task* t){
 	return true;
 }
 bool handle_session_task(host* h, void* message){
+	//TODO: fail false too short
 	fail_false(h->waiting_preamble.message_length % aes_block_size == 0);
 	std::array<unsigned char, session_secret_size> searching_for;
 	memcpy(searching_for.data(), message, session_secret_size);
@@ -118,11 +120,13 @@ bool handle_session_task(host* h, void* message){
 	int padded_decrypted_size = h->waiting_preamble.message_length-aes_block_size;
 	unsigned char* decypted_padded = new unsigned char[padded_decrypted_size];
 	fail_false(crypto::decrypt(ns->encryption_key, (unsigned char*)message, padded_decrypted_size, decypted_padded));
+	session_wire_task* swt = (session_wire_task*)decypted_padded;
 	unsigned char sha[aes_block_size];
-	fail_false(crypto::sha256_n_bytes(message, padded_decrypted_size - aes_block_size, sha, aes_block_size));
-	fail_false(memcmp(sha, ((unsigned char*)message)+(padded_decrypted_size - aes_block_size), aes_block_size) == 0);//TODO: see above
-	session_wire_task* swt = (session_wire_task*)message;
-	fail_false(memcmp(swt->peer_secret, ns->this_secret, session_secret_size));//TODO: see above
+	char hashed_padded_decrypted_TEMP[5000];
+	bytes_to_hex(decypted_padded, padded_decrypted_size - aes_block_size, hashed_padded_decrypted_TEMP);
+	fail_false(crypto::sha256_n_bytes(decypted_padded, padded_decrypted_size - aes_block_size, sha, aes_block_size));
+	fail_false(memcmp(sha, ((unsigned char*)decypted_padded)+(padded_decrypted_size - aes_block_size), aes_block_size) == 0);//TODO: see above
+	fail_false(memcmp(swt->peer_secret, ns->this_secret, session_secret_size) == 0);//TODO: see above
 	int param_length = padded_decrypted_size-sizeof(session_wire_task)-aes_block_size-(swt->length_anomaly & 0x0F);
 	
 	std::cerr<<"received task name:"<<swt->t.function_name<<"\n";
@@ -170,6 +174,7 @@ bool send_create_session(host* h, unsigned char* origin_pub, unsigned char* dest
 	h->sessions[ns->pubs] = ns;
 	//TEMP
 	host_task* ht = new host_task();
+	ht->param_length = 0;
 	strcpy(ht->t.function_name, "shit");
 	ns->waiting_for_transmission.emplace(ht);
 	///TEMP
