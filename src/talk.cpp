@@ -46,6 +46,7 @@ enum preamble_type : unsigned char{
 	create_session = 0,
 	finalise_session = 1,
 	session_task = 2,
+	reset = 4 //TODO
 };
 
 struct preamble{
@@ -77,7 +78,25 @@ int get_waiting(int fd){
 
 //TODO: this code assumes shared_secret_size mod aes_block_size is 0
 
+//false from any of these functions should drop the whole connection immediatley
+
 //IV is remote hash (ask me what that means)
+
+bool encrypt_and_send(host* h, network_session* s, void* to_send, int to_send_len, unsigned char* init_vector=nullptr){
+	int enc_size = crypto::calc_encrypted_size(to_send_len);
+	void* unencrypted_buf = malloc(enc_size-aes_block_size);
+	memset(unencrypted_buf, 0, enc_size-aes_block_size);
+	memcpy(unencrypted_buf, to_send, to_send_len);
+	void* encrypted_buf = malloc(enc_size);
+	if(init_vector != nullptr)
+		memcpy(encrypted_buf, init_vector, aes_block_size);
+	fail_false(crypto::encrypt(s->encryption_key, (unsigned char*)unencrypted_buf, to_send_len, (unsigned char*)encrypted_buf, init_vector != nullptr));
+	write(h->fd, encrypted_buf, enc_size);
+	free(encrypted_buf);
+	free(unencrypted_buf);
+	return true;
+}
+
 bool send_task(host* h, network_session* s, host_task* t){
 	//TEMP
 	int pre_pad_length = sizeof(session_wire_task) + t->param_length /*pad goes here*/ + aes_block_size;
@@ -94,21 +113,29 @@ bool send_task(host* h, network_session* s, host_task* t){
 	crypto::rng(nullptr, pad_start, swt->length_anomaly);
 	unsigned char* checksum_start = pad_start + swt->length_anomaly;
 	fail_false(crypto::sha256_n_bytes(decrypted, checksum_start-decrypted, checksum_start, aes_block_size));
-	unsigned char* encrypted = new unsigned char[total_encrypted_length];
-	fail_false(s->calc_hash(false, encrypted));
+	unsigned char iv[session_secret_size];
+	fail_false(s->calc_hash(false, iv));
 	s->peer_message_count++;
-	fail_false(crypto::encrypt(s->encryption_key, decrypted, post_pad_length, encrypted, true));
 	preamble p{
 		.type = preamble_type::session_task,
 		.message_length = (short unsigned int)total_encrypted_length
 	};
 	fail_false(write(h->fd, &p, sizeof(preamble)) == sizeof(preamble));
-	fail_false(write(h->fd, encrypted, total_encrypted_length));
-	delete encrypted;
+	fail_false(encrypt_and_send(h, s, decrypted, post_pad_length, iv));
 	delete decrypted;
-	///TEMP
 	return true;
 }
+
+bool send_waiting_tasks(host* h, network_session* ns){
+	for(int i = 0; i < 5 && ns->waiting_for_transmission.size() > 0; i++){
+		host_task* ht = ns->waiting_for_transmission.front();
+		ns->waiting_for_transmission.pop();
+		fail_false(send_task(h, ns, ht));
+		delete ht;
+	}
+	return true;
+}
+
 bool handle_session_task(host* h, void* message){
 	//TODO: fail false too short
 	fail_false(h->waiting_preamble.message_length % aes_block_size == 0);
@@ -132,24 +159,14 @@ bool handle_session_task(host* h, void* message){
 	std::cerr<<"received task name:"<<swt->t.function_name<<"\n";
 
 	ns->this_message_count++;
+	h->next_inbound_session_hashes.erase(found);
+	std::array<unsigned char, session_secret_size> next;
+	ns->calc_hash(true, next.data());
+	h->next_inbound_session_hashes[next] = ns->pubs;
+
 	return true;
 }
 
-//false from any of these functions should drop the whole connection immediatley
-bool encrypt_and_send(host* h, network_session* s, void* to_send, int to_send_len, unsigned char* init_vector=nullptr){
-	int enc_size = crypto::calc_encrypted_size(to_send_len);
-	void* unencrypted_buf = malloc(enc_size-aes_block_size);
-	memset(unencrypted_buf, 0, enc_size-aes_block_size);
-	memcpy(unencrypted_buf, to_send, to_send_len);
-	void* encrypted_buf = malloc(enc_size);
-	if(init_vector != nullptr)
-		memcpy(encrypted_buf, init_vector, aes_block_size);
-	fail_false(crypto::encrypt(s->encryption_key, (unsigned char*)unencrypted_buf, to_send_len, (unsigned char*)encrypted_buf, init_vector != nullptr));
-	write(h->fd, encrypted_buf, enc_size);
-	free(encrypted_buf);
-	free(unencrypted_buf);
-	return true;
-}
 bool send_create_session(host* h, unsigned char* origin_pub, unsigned char* dest_pub){
 	std::cerr<<"sending create\n";
 	network_session* ns = new network_session();
@@ -176,6 +193,10 @@ bool send_create_session(host* h, unsigned char* origin_pub, unsigned char* dest
 	host_task* ht = new host_task();
 	ht->param_length = 0;
 	strcpy(ht->t.function_name, "shit");
+	ns->waiting_for_transmission.emplace(ht);
+	ht = new host_task();
+	ht->param_length = 0;
+	strcpy(ht->t.function_name, "son");
 	ns->waiting_for_transmission.emplace(ht);
 	///TEMP
 	return true;
@@ -217,6 +238,18 @@ bool handle_create_session(host* h, void* message){
 	ns->calc_hash(true, next_inbound_hash.data());
 	h->next_inbound_session_hashes[next_inbound_hash] = ns->pubs;
 	h->sessions[ns->pubs] = ns;
+	//TEMP
+	host_task* ht = new host_task();
+	ht->param_length = 0;
+	strcpy(ht->t.function_name, "no");
+	ns->waiting_for_transmission.emplace(ht);
+
+	ht = new host_task();
+	ht->param_length = 0;
+	strcpy(ht->t.function_name, "yes");
+	ns->waiting_for_transmission.emplace(ht);
+	///TEMP
+	fail_false(send_waiting_tasks(h, ns));
 	return true;
 }
 bool handle_finalise_session(host* h, void* message){
@@ -244,18 +277,13 @@ bool handle_finalise_session(host* h, void* message){
 	ns->calc_hash(true, next_inbound_hash.data());
 	h->next_inbound_session_hashes[next_inbound_hash] = ns->pubs;
 	//TODO: timeout (short)
-	while(ns->waiting_for_transmission.size() > 0){//TODO: consider DoS from stuffing this queue full of items
-		host_task* ht = ns->waiting_for_transmission.front();
-		ns->waiting_for_transmission.pop();
-		fail_false(send_task(h, ns, ht));
-		delete ht;
-	}
 	std::cerr<<"established!\n";
+	fail_false(send_waiting_tasks(h, ns));
 	return true;
 }
 
 //if false is returned, the connection should be dropped
-bool receive_comms(host* h){
+bool handle_host(host* h){
 	int count = get_waiting(h->fd);
 	//if there are no packets, skip this host
 	if(count == 0)
@@ -492,7 +520,7 @@ bool run_talk_worker(int port){
 		fresh_con.fd = accept(listener_no, (sockaddr*) &fresh_con.addr, &other_len);
 	}
 
-	while(receive_comms(&fresh_con)){
+	while(handle_host(&fresh_con)){
 		usleep(100);
 	}
 
