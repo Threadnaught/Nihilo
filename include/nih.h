@@ -14,13 +14,14 @@
 #define aes_block_size 16
 #define tcp_port 7328
 #define con_timeout 15
-#define unfinished_con_timeout 5
 #define max_packet_size 512
 #define max_func_len 20
 #define max_address_len 100
 #define max_name_len 32
 #define max_retries 3
 #define session_secret_size 16
+#define non_final_session_timeout 10
+#define final_session_timeout 100
 
 struct machine_keypair{
 	unsigned char ecc_pub[ecc_pub_size];

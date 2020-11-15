@@ -14,5 +14,5 @@ services:
     depends_on:
       - nihilo_host
     #command: /nih/bin/nih -d /nih/docker_develop/databases/pingerdb -m /nih/machine_prototypes/net_example/pinger.json -e
-    command: /nih/bin/nih -d /nih/docker_develop/databases/pingerdb -p 0
+    command: gdb -q -ex run --args /nih/bin/nih -d /nih/docker_develop/databases/pingerdb -p 0
 #gdb -q -ex run --args

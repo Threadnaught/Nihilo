@@ -24,7 +24,7 @@ struct origin_dest{
 bool operator< (const origin_dest o1, const origin_dest o2){
 	return memcmp(&o1, &o2, sizeof(origin_dest)) < 0;
 }
-struct network_session{//TODO:create generic session for intra-host queues
+struct network_session{
 	bool session_finalized = false;
 	time_t timeout;
 	origin_dest pubs;
@@ -75,11 +75,10 @@ int get_waiting(int fd){
 }
 
 //TODO: fail_goto for all these funcs
+//TODO: eval whether this is vulnerable to a timing attack?? (wait for 500ms to send negative response??)
 
-//TODO: this code assumes shared_secret_size mod aes_block_size is 0
-
+//this code assumes shared_secret_size mod aes_block_size is 0
 //false from any of these functions should drop the whole connection immediatley
-
 //IV is remote hash (ask me what that means)
 
 bool encrypt_and_send(host* h, network_session* s, void* to_send, int to_send_len, unsigned char* init_vector=nullptr){
@@ -141,8 +140,8 @@ bool handle_session_task(host* h, void* message){
 	fail_false(h->waiting_preamble.message_length % aes_block_size == 0);
 	std::array<unsigned char, session_secret_size> searching_for;
 	memcpy(searching_for.data(), message, session_secret_size);
-	auto found = h->next_inbound_session_hashes.find(searching_for);//TODO: eval whether this is vulnerable to a timing attack?? (wait for 500ms to send negative response??)
-	fail_false(found != h->next_inbound_session_hashes.end());//TODO: see above
+	auto found = h->next_inbound_session_hashes.find(searching_for);
+	fail_false(found != h->next_inbound_session_hashes.end());
 	network_session* ns = h->sessions[found->second];
 	int padded_decrypted_size = h->waiting_preamble.message_length-aes_block_size;
 	unsigned char* decypted_padded = new unsigned char[padded_decrypted_size];
@@ -152,8 +151,8 @@ bool handle_session_task(host* h, void* message){
 	char hashed_padded_decrypted_TEMP[5000];
 	bytes_to_hex(decypted_padded, padded_decrypted_size - aes_block_size, hashed_padded_decrypted_TEMP);
 	fail_false(crypto::sha256_n_bytes(decypted_padded, padded_decrypted_size - aes_block_size, sha, aes_block_size));
-	fail_false(memcmp(sha, ((unsigned char*)decypted_padded)+(padded_decrypted_size - aes_block_size), aes_block_size) == 0);//TODO: see above
-	fail_false(memcmp(swt->peer_secret, ns->this_secret, session_secret_size) == 0);//TODO: see above
+	fail_false(memcmp(sha, ((unsigned char*)decypted_padded)+(padded_decrypted_size - aes_block_size), aes_block_size) == 0);
+	fail_false(memcmp(swt->peer_secret, ns->this_secret, session_secret_size) == 0);
 	int param_length = padded_decrypted_size-sizeof(session_wire_task)-aes_block_size-(swt->length_anomaly & 0x0F);
 	
 	std::cerr<<"received task name:"<<swt->t.function_name<<"\n";
@@ -187,7 +186,7 @@ bool send_create_session(host* h, unsigned char* origin_pub, unsigned char* dest
 	//create, encrypt and send this side's session secret
 	crypto::rng(nullptr, ns->this_secret, session_secret_size);
 	fail_false(encrypt_and_send(h, ns, ns->this_secret, session_secret_size));
-	//TODO: timeout (short)
+	ns->timeout = time(NULL) + non_final_session_timeout;
 	h->sessions[ns->pubs] = ns;
 	//TEMP
 	host_task* ht = new host_task();
@@ -232,7 +231,7 @@ bool handle_create_session(host* h, void* message){
 	memcpy(unencrypted_secrets+session_secret_size, ns->peer_secret, session_secret_size);
 	fail_false(crypto::encrypt(ns->encryption_key, unencrypted_secrets, session_secret_size*2, encrypted_secrets));
 	write(h->fd, encrypted_secrets, crypto::calc_encrypted_size(session_secret_size*2));
-	//TODO: timeout (short)
+	ns->timeout = time(NULL) + final_session_timeout;
 	ns->session_finalized = true;
 	std::array<unsigned char, session_secret_size> next_inbound_hash;
 	ns->calc_hash(true, next_inbound_hash.data());
@@ -249,7 +248,6 @@ bool handle_create_session(host* h, void* message){
 	strcpy(ht->t.function_name, "yes");
 	ns->waiting_for_transmission.emplace(ht);
 	///TEMP
-	fail_false(send_waiting_tasks(h, ns));
 	return true;
 }
 bool handle_finalise_session(host* h, void* message){
@@ -261,7 +259,6 @@ bool handle_finalise_session(host* h, void* message){
 	origin_dest search_target;
 	memcpy(search_target.origin_pub, inbound_origin_dest->dest_pub, sizeof(origin_dest));
 	memcpy(search_target.dest_pub, inbound_origin_dest->origin_pub, sizeof(origin_dest));
-	//TODO: index this linear search
 	auto it = h->sessions.find(search_target);
 	fail_false(it != h->sessions.end());
 	network_session* ns = it->second;
@@ -276,14 +273,13 @@ bool handle_finalise_session(host* h, void* message){
 	std::array<unsigned char, session_secret_size> next_inbound_hash;
 	ns->calc_hash(true, next_inbound_hash.data());
 	h->next_inbound_session_hashes[next_inbound_hash] = ns->pubs;
-	//TODO: timeout (short)
-	std::cerr<<"established!\n";
-	fail_false(send_waiting_tasks(h, ns));
+	ns->timeout = time(NULL) + final_session_timeout;
+	//std::cerr<<"established!\n";
 	return true;
 }
 
 //if false is returned, the connection should be dropped
-bool handle_host(host* h){
+bool handle_inbound(host* h){
 	int count = get_waiting(h->fd);
 	//if there are no packets, skip this host
 	if(count == 0)
@@ -319,6 +315,24 @@ bool handle_host(host* h){
 	}
 	free(received_message);
 	fail_false(ret);
+	return true;
+}
+bool handle_host(host* h){
+	fail_false(handle_inbound(h));
+	std::vector<origin_dest> to_drop;//not really sure why this hack is needed but fuck if it breaks without it
+	for(auto it = h->sessions.begin(); it != h->sessions.end(); it++){
+		if(it->second->session_finalized){
+			fail_false(send_waiting_tasks(h, it->second));
+		}
+		else if(time(NULL) > it->second->timeout){
+			to_drop.push_back(it->first);
+		}
+		
+	}
+	for(int i = 0; i < to_drop.size(); i++){
+		std::cerr<<"dropping session (timeout)\n";
+		h->sessions.erase(to_drop[i]);
+	}
 	return true;
 }
 
@@ -494,7 +508,7 @@ bool run_talk_worker(int port){
 		fresh_con.addr.sin_port = htons(tcp_port);
 		fail_false(connect(connection_no, (sockaddr*)&fresh_con.addr, sizeof(sockaddr_in)) >= 0);
 		fresh_con.fd = connection_no;
-		hex_to_bytes_array(dest, "24DF0DBA4734475616B1B19E3DD82093FE7A7A7187CDE2ACD4A12386B60DE2BC", ecc_pub_size);//TODO
+		hex_to_bytes_array(dest, "24DF0DBA4734475616B1B19E3DD82093FE7A7A7187CDE2ACD4A12386B60DE2BC", ecc_pub_size);
 		unsigned char orig[ecc_pub_size];
 		compute::resolve_local_machine("#root", orig);
 		send_create_session(&fresh_con, orig, dest);
@@ -519,9 +533,9 @@ bool run_talk_worker(int port){
 		socklen_t other_len = sizeof(sockaddr_in);
 		fresh_con.fd = accept(listener_no, (sockaddr*) &fresh_con.addr, &other_len);
 	}
-
-	while(handle_host(&fresh_con)){
-		usleep(100);
+	while(true){
+		fail_false(handle_host(&fresh_con));
+		usleep(10000);
 	}
 
 	return true;
