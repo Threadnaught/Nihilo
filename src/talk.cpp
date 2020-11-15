@@ -81,6 +81,7 @@ int get_waiting(int fd){
 //false from any of these functions should drop the whole connection immediatley
 //IV is remote hash (ask me what that means)
 
+//encrypt message for session and send to host
 bool encrypt_and_send(host* h, network_session* s, void* to_send, int to_send_len, unsigned char* init_vector=nullptr){
 	int enc_size = crypto::calc_encrypted_size(to_send_len);
 	void* unencrypted_buf = malloc(enc_size-aes_block_size);
@@ -90,31 +91,40 @@ bool encrypt_and_send(host* h, network_session* s, void* to_send, int to_send_le
 	if(init_vector != nullptr)
 		memcpy(encrypted_buf, init_vector, aes_block_size);
 	fail_false(crypto::encrypt(s->encryption_key, (unsigned char*)unencrypted_buf, to_send_len, (unsigned char*)encrypted_buf, init_vector != nullptr));
-	write(h->fd, encrypted_buf, enc_size);
+	fail_false(write(h->fd, encrypted_buf, enc_size) != enc_size);
 	free(encrypted_buf);
 	free(unencrypted_buf);
 	return true;
 }
 
 bool send_task(host* h, network_session* s, host_task* t){
-	//TEMP
+	//pre_pad_length is the length of all of the data that needs sending
 	int pre_pad_length = sizeof(session_wire_task) + t->param_length /*pad goes here*/ + aes_block_size;
+	//total_encrypted_length is the size of data on the wire
 	int total_encrypted_length = crypto::calc_encrypted_size(pre_pad_length);
+	//post pad length is pre_pad_length rounded up to the nearest block
 	int post_pad_length = total_encrypted_length - aes_block_size;
+	//decrypted stores the data to be sent
 	unsigned char* decrypted = new unsigned char[post_pad_length];
 	memset(decrypted, 0, post_pad_length);
 	session_wire_task* swt = (session_wire_task*)decrypted;
+	//peer secret is one of the checks that auths the message
 	memcpy(swt->peer_secret, s->peer_secret, session_secret_size);
-	swt->length_anomaly = post_pad_length - pre_pad_length;
+	swt->pad_bytes = post_pad_length - pre_pad_length;
+	//TODO: change to new style
 	memcpy(&swt->t, &t->t, sizeof(common_task));
 	memcpy((swt+1), (t+1), t->param_length);
+	///TODO
 	unsigned char* pad_start = ((unsigned char*)(swt+1))+t->param_length;
-	crypto::rng(nullptr, pad_start, swt->length_anomaly);
-	unsigned char* checksum_start = pad_start + swt->length_anomaly;
+	crypto::rng(nullptr, pad_start, swt->pad_bytes);
+	unsigned char* checksum_start = pad_start + swt->pad_bytes;
+	//sha256 hash is the other decryption check(TODO: less intensive hash)
 	fail_false(crypto::sha256_n_bytes(decrypted, checksum_start-decrypted, checksum_start, aes_block_size));
+	//the iv is the sha256(peer secret, message index)
 	unsigned char iv[session_secret_size];
 	fail_false(s->calc_hash(false, iv));
 	s->peer_message_count++;
+	//send the message:
 	preamble p{
 		.type = preamble_type::session_task,
 		.message_length = (short unsigned int)total_encrypted_length
@@ -135,34 +145,39 @@ bool send_waiting_tasks(host* h, network_session* ns){
 	return true;
 }
 
+//this function handles a preamble_type::session_task message
 bool handle_session_task(host* h, void* message){
-	//TODO: fail false too short
+	//ensure this is a whole number of blocks
 	fail_false(h->waiting_preamble.message_length % aes_block_size == 0);
+	//search the iv/session hash for this session
 	std::array<unsigned char, session_secret_size> searching_for;
 	memcpy(searching_for.data(), message, session_secret_size);
 	auto found = h->next_inbound_session_hashes.find(searching_for);
 	fail_false(found != h->next_inbound_session_hashes.end());
 	network_session* ns = h->sessions[found->second];
+	//decrypt the value into a new buffer:
 	int padded_decrypted_size = h->waiting_preamble.message_length-aes_block_size;
 	unsigned char* decypted_padded = new unsigned char[padded_decrypted_size];
 	fail_false(crypto::decrypt(ns->encryption_key, (unsigned char*)message, padded_decrypted_size, decypted_padded));
 	session_wire_task* swt = (session_wire_task*)decypted_padded;
+	//verify decrypted hash:
 	unsigned char sha[aes_block_size];
-	char hashed_padded_decrypted_TEMP[5000];
-	bytes_to_hex(decypted_padded, padded_decrypted_size - aes_block_size, hashed_padded_decrypted_TEMP);
 	fail_false(crypto::sha256_n_bytes(decypted_padded, padded_decrypted_size - aes_block_size, sha, aes_block_size));
 	fail_false(memcmp(sha, ((unsigned char*)decypted_padded)+(padded_decrypted_size - aes_block_size), aes_block_size) == 0);
+	//verify peer_secret
 	fail_false(memcmp(swt->peer_secret, ns->this_secret, session_secret_size) == 0);
-	int param_length = padded_decrypted_size-sizeof(session_wire_task)-aes_block_size-(swt->length_anomaly & 0x0F);
 	
+	int param_length = padded_decrypted_size-sizeof(session_wire_task)-aes_block_size-(swt->pad_bytes & 0x0F);
 	std::cerr<<"received task name:"<<swt->t.function_name<<"\n";
-
+	//TODO: schedule task
+	
+	//update inbound session hash index
 	ns->this_message_count++;
 	h->next_inbound_session_hashes.erase(found);
 	std::array<unsigned char, session_secret_size> next;
 	ns->calc_hash(true, next.data());
 	h->next_inbound_session_hashes[next] = ns->pubs;
-
+	delete decypted_padded;
 	return true;
 }
 
@@ -227,12 +242,16 @@ bool handle_create_session(host* h, void* message){
 	//construct and encrypt secrets:
 	unsigned char unencrypted_secrets[session_secret_size*2];
 	unsigned char encrypted_secrets[crypto::calc_encrypted_size(session_secret_size*2)];
+	//our secret is first to stop IV reuse
 	memcpy(unencrypted_secrets, ns->this_secret, session_secret_size);
 	memcpy(unencrypted_secrets+session_secret_size, ns->peer_secret, session_secret_size);
+	//TODO: convert to encrypt_and_send
 	fail_false(crypto::encrypt(ns->encryption_key, unencrypted_secrets, session_secret_size*2, encrypted_secrets));
 	write(h->fd, encrypted_secrets, crypto::calc_encrypted_size(session_secret_size*2));
+	//session is now final
 	ns->timeout = time(NULL) + final_session_timeout;
 	ns->session_finalized = true;
+	//update session hash index
 	std::array<unsigned char, session_secret_size> next_inbound_hash;
 	ns->calc_hash(true, next_inbound_hash.data());
 	h->next_inbound_session_hashes[next_inbound_hash] = ns->pubs;
