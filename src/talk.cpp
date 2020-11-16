@@ -515,10 +515,66 @@ bool receive_body(int hostid, unsigned char* body){
 	return false;
 }
 
-bool run_talk_worker(int port){
-	
+bool queue_comm_to_session(host_task* ht){
+	//TODO (see send_comm)
+	return true;
 }
-bool run_talk_worker_interim(int port){
+
+bool run_talk_worker_new(int port){
+	//create listener:
+	int listener_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+	fail_false(listener_no > 0);
+	//configure inbound endpoint:
+	sockaddr_in addr;
+	memset(&addr, 0, sizeof(sockaddr_in));
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(port);
+	addr.sin_addr.s_addr = INADDR_ANY;
+	//bind inbound endpoint:
+	fail_false(bind(listener_no, (sockaddr*)&addr, sizeof(sockaddr_in)) == 0);
+	fail_false(listen(listener_no,5) == 0);
+	//std::cerr<<"listening\n";
+	while(1){
+		//apply comm queue to relevant sessions:
+		while(1){
+			auto c = comm_queue.acquire();
+			if(c->size() == 0){
+				comm_queue.release();
+				break;
+			}
+			host_task* next = c->front();
+			c->pop();
+			comm_queue.release();
+			char ip_target[max_address_len];
+			fail_false(compute::get_address_ip_target(next->dest_addr, ip_target));
+			fail_false(queue_comm_to_session(next));
+		}
+		//poll for fresh incoming connections:
+		pollfd listener_poll;
+		listener_poll.fd = listener_no;
+		listener_poll.events = POLLIN;
+		listener_poll.revents = 0;
+		poll(&listener_poll, 1, 0);//TODO: see original implementation if it goes pants
+		if(listener_poll.revents != 0){
+			host con;
+			socklen_t other_len = sizeof(sockaddr_in);
+			//accept the connection
+			int connection_no = accept(listener_no, (sockaddr*) &con.addr, &other_len);
+			//if the connection is valid, add it to the list and reset its timeout
+			if(connection_no >= 0){
+				//std::cerr<<"adding new connection\n";
+				con.fd = connection_no;
+				hosts.push_back(con);
+			}
+		}
+		//iterate over known connections
+		for(int i = 0; i < hosts.size(); i++){
+			fail_false(handle_host(&hosts[i]));
+		}
+		usleep(10000);
+	}
+}
+bool run_talk_worker(int port){
 	//TODO: remove
 	bool TEMP_PING = port == 0;
 	port = tcp_port;
@@ -548,7 +604,7 @@ bool run_talk_worker_interim(int port){
 		compute::resolve_local_machine("#root", orig);
 		send_create_session(&fresh_con, orig, dest);
 	} else {
-		//create listener:
+		/*//create listener:
 		int listener_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
 		fail_false(listener_no > 0);
 		//configure inbound endpoint:
@@ -566,7 +622,8 @@ bool run_talk_worker_interim(int port){
 		listener_poll.revents = 0;
 		while(poll(&listener_poll, 1, 0) < 0);
 		socklen_t other_len = sizeof(sockaddr_in);
-		fresh_con.fd = accept(listener_no, (sockaddr*) &fresh_con.addr, &other_len);
+		fresh_con.fd = accept(listener_no, (sockaddr*) &fresh_con.addr, &other_len);*/
+		run_talk_worker_new(port);
 	}
 	while(true){
 		if(!handle_host(&fresh_con)){
@@ -574,7 +631,6 @@ bool run_talk_worker_interim(int port){
 		}
 		usleep(10000);
 	}
-
 	return true;
 }
 bool run_talk_worker_old(int port){
