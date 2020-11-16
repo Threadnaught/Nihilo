@@ -21,7 +21,8 @@
 #define max_retries 3
 #define session_secret_size 16
 #define non_final_session_timeout 10
-#define final_session_timeout 100
+#define final_session_timeout 10
+#define empty_host_timeout 10
 
 struct machine_keypair{
 	unsigned char ecc_pub[ecc_pub_size];

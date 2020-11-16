@@ -61,6 +61,7 @@ struct host{
 	bool is_packet_waiting;
 	packet_header waiting_packet;
 
+	bool empty = false;
 	std::map<origin_dest, network_session*> sessions;
 	std::map<std::array<unsigned char, session_secret_size>, origin_dest> next_inbound_session_hashes;
 	bool is_preamble_waiting = false;
@@ -91,7 +92,7 @@ bool encrypt_and_send(host* h, network_session* s, void* to_send, int to_send_le
 	if(init_vector != nullptr)
 		memcpy(encrypted_buf, init_vector, aes_block_size);
 	fail_false(crypto::encrypt(s->encryption_key, (unsigned char*)unencrypted_buf, to_send_len, (unsigned char*)encrypted_buf, init_vector != nullptr));
-	fail_false(write(h->fd, encrypted_buf, enc_size) != enc_size);
+	write(h->fd, encrypted_buf, enc_size); //for some reason fail_false on this don't work?
 	free(encrypted_buf);
 	free(unencrypted_buf);
 	return true;
@@ -338,19 +339,31 @@ bool handle_inbound(host* h){
 }
 bool handle_host(host* h){
 	fail_false(handle_inbound(h));
-	std::vector<origin_dest> to_drop;//not really sure why this hack is needed but fuck if it breaks without it
+	std::vector<origin_dest> to_drop;//not really sure why this hack is needed but fuck if it doesn't break without it
 	for(auto it = h->sessions.begin(); it != h->sessions.end(); it++){
 		if(it->second->session_finalized){
 			fail_false(send_waiting_tasks(h, it->second));
 		}
-		else if(time(NULL) > it->second->timeout){
+		if(time(NULL) > it->second->timeout){
+			std::cerr<<"dropping session (timeout)\n";
 			to_drop.push_back(it->first);
 		}
 		
 	}
 	for(int i = 0; i < to_drop.size(); i++){
-		std::cerr<<"dropping session (timeout)\n";
 		h->sessions.erase(to_drop[i]);
+	}
+	//manage whole-host timeout:
+	if(h->sessions.size() == 0 && !h->empty){
+		h->timeout = time(NULL) + empty_host_timeout;
+		h->empty = true;
+	} else if (h->sessions.size() > 0 && h->empty){
+		h->empty = false;
+	}
+	if (h->empty && h->timeout < time(NULL)){
+		std::cerr<<"dropping connection\n";
+		//TODO: sessions, connections and failures
+		return false;
 	}
 	return true;
 }
@@ -503,6 +516,9 @@ bool receive_body(int hostid, unsigned char* body){
 }
 
 bool run_talk_worker(int port){
+	
+}
+bool run_talk_worker_interim(int port){
 	//TODO: remove
 	bool TEMP_PING = port == 0;
 	port = tcp_port;
@@ -553,7 +569,9 @@ bool run_talk_worker(int port){
 		fresh_con.fd = accept(listener_no, (sockaddr*) &fresh_con.addr, &other_len);
 	}
 	while(true){
-		fail_false(handle_host(&fresh_con));
+		if(!handle_host(&fresh_con)){
+			break;
+		}
 		usleep(10000);
 	}
 
