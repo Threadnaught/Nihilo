@@ -211,7 +211,7 @@ int locate_address_pivot(const char* address){
 	return -1;
 }
 
-bool compute::get_address_ip_target(const char* address, char* ip_target_out){
+bool compute::get_address_ip_target(const char* address, char* ip_target_out){//TODO: change to hostname
 	//std::cerr<<"address:"<<address<<"\n";
 	int pivot = locate_address_pivot(address);
 	fail_false(pivot > -1); //if pivot is -1, it does not have pivot char

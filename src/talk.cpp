@@ -182,7 +182,7 @@ bool handle_session_task(host* h, void* message){
 	return true;
 }
 
-bool send_create_session(host* h, unsigned char* origin_pub, unsigned char* dest_pub){
+bool send_create_session(host* h, unsigned char* origin_pub, unsigned char* dest_pub, host_task* first_in_queue=nullptr){
 	std::cerr<<"sending create\n";
 	network_session* ns = new network_session();
 	//get the encryption key for this session:
@@ -205,15 +205,18 @@ bool send_create_session(host* h, unsigned char* origin_pub, unsigned char* dest
 	ns->timeout = time(NULL) + non_final_session_timeout;
 	h->sessions[ns->pubs] = ns;
 	//TEMP
-	host_task* ht = new host_task();
+	/*host_task* ht = new host_task();
 	ht->param_length = 0;
 	strcpy(ht->t.function_name, "shit");
 	ns->waiting_for_transmission.emplace(ht);
 	ht = new host_task();
 	ht->param_length = 0;
 	strcpy(ht->t.function_name, "son");
-	ns->waiting_for_transmission.emplace(ht);
+	ns->waiting_for_transmission.emplace(ht);*/
 	///TEMP
+	if(first_in_queue != nullptr) 
+		ns->waiting_for_transmission.push(first_in_queue);
+	
 	return true;
 }
 bool handle_create_session(host* h, void* message){
@@ -258,15 +261,14 @@ bool handle_create_session(host* h, void* message){
 	h->next_inbound_session_hashes[next_inbound_hash] = ns->pubs;
 	h->sessions[ns->pubs] = ns;
 	//TEMP
-	host_task* ht = new host_task();
+	/*host_task* ht = new host_task();
 	ht->param_length = 0;
 	strcpy(ht->t.function_name, "no");
 	ns->waiting_for_transmission.emplace(ht);
-
 	ht = new host_task();
 	ht->param_length = 0;
 	strcpy(ht->t.function_name, "yes");
-	ns->waiting_for_transmission.emplace(ht);
+	ns->waiting_for_transmission.emplace(ht);*/
 	///TEMP
 	return true;
 }
@@ -421,7 +423,7 @@ bool send_comm(host_task* t){
 	hosts[host_index].timeout = time(NULL) + con_timeout;
 	//derrive shared secret:
 	if(receiver_identifier[0] != '~'){
-		std::cerr<<"destination pubkey must currently be specified\n"; //(TODO)
+		std::cerr<<"destination pubkey must currently be specified\n";
 		fail_false(false);
 	}
 	hex_to_bytes_array(receiver_pub, receiver_identifier+1, ecc_pub_size);
@@ -516,6 +518,58 @@ bool receive_body(int hostid, unsigned char* body){
 }
 
 bool queue_comm_to_session(host_task* ht){
+	char receiver_hostname[max_address_len];
+	fail_false(compute::get_address_ip_target(ht->dest_addr, receiver_hostname));
+	char receiver_identifier[max_address_len];
+	fail_false(compute::get_address_machine_target(ht->dest_addr, receiver_identifier));
+	char sender_identifier[max_address_len];
+	fail_false(compute::get_address_machine_target(ht->origin_addr, sender_identifier));
+	if(receiver_identifier[0] != '~'){
+		std::cerr<<"Network RPC must specify target pub\n"; //this will need dnssec or simiilar to solve
+		fail_false(false);
+	}
+	int found_host = -1;
+	sockaddr_in search_address;
+	hostent* target_ent = gethostbyname(receiver_hostname);
+	fail_false(target_ent != nullptr);
+	memset(&search_address, 0, sizeof(search_address));
+	search_address.sin_family = AF_INET;
+	memcpy(&search_address.sin_addr.s_addr, target_ent->h_addr_list[0], target_ent->h_length);
+	search_address.sin_port = htons(tcp_port);
+	//check for already established connection:
+	char tgt_addr[20];
+	inet_ntop(AF_INET, &search_address, tgt_addr, 15);//TODO: 15????
+	int host_index = -1;
+	for(int i = 0; i < hosts.size(); i++){//TODO: optimise
+		char this_addr[20];
+		inet_ntop(AF_INET, &hosts[i].addr, this_addr, 20);
+		if((strcmp(this_addr, receiver_hostname)==0) || (search_address.sin_addr.s_addr == hosts[i].addr.sin_addr.s_addr)){
+			std::cerr<<"found\n";
+			host_index = i;
+			break;
+		}
+	}
+	//if there is no already established connection, connect
+	if(host_index == -1){
+		host fresh_con;
+		//open socket:
+		fresh_con.fd = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+		fail_false(fresh_con.fd >= 0);
+		fail_false(connect(fresh_con.fd, (sockaddr*)&search_address, sizeof(sockaddr_in)) >= 0);
+		fresh_con.addr = search_address;
+		hosts.push_back(fresh_con);
+		host_index = hosts.size() - 1;
+		std::cerr<<"established\n";
+	}
+	origin_dest pubs;
+	fail_false(compute::resolve_local_machine(sender_identifier, pubs.origin_pub));
+	hex_to_bytes(receiver_identifier+1, pubs.dest_pub);//todo: hex_to_bytes specific length
+	auto it = hosts[host_index].sessions.find(pubs);
+	if(it != hosts[host_index].sessions.end()){
+		it->second->waiting_for_transmission.push(ht);
+	} else {
+		send_create_session(&hosts[host_index], pubs.origin_pub, pubs.dest_pub, ht);
+	}
 	//TODO (see send_comm)
 	return true;
 }
