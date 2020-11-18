@@ -666,13 +666,13 @@ bool run_talk_worker(int port){
 		unsigned char orig[ecc_pub_size];
 		compute::resolve_local_machine("#root", orig);
 		send_create_session(&fresh_con, orig, dest);*/
-		auto q = comm_queue.acquire();
+		/*auto q = comm_queue.acquire();
 		host_task* ht = new host_task();
 		strcpy(ht->dest_addr, "nihilo_host~27241CB8D2B1A26D4DAB290B2F8ECFAE210A1F20B3841A5D8C3E1ABB657EF7BD");
 		strcpy(ht->origin_addr, "#root");
 		ht->param_length = 0;
 		strcpy(ht->t.function_name, "TEMP_whatever");
-		q->push(ht);
+		q->push(ht);*/
 		comm_queue.release();
 
 		run_talk_worker_new(port);

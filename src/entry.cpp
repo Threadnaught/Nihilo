@@ -16,7 +16,7 @@ int main(int argc, char** argv){
 	fail_check(recall::init(db_path), -1);
 	fail_check(compute::init(), -1);
 	bool entry = false;
-	while((opt = getopt(argc, argv, "d:m:t:f:e:p:")) != -1){//-d database path -m machine path -t ping to -f ping from -e run entry on this host's root
+	while((opt = getopt(argc, argv, "d:m:t:f:ep:")) != -1){//-d database path -m machine path -t ping to -f ping from -e run entry on this host's root
 		switch(opt){
 			case 'd':
 				strncpy(db_path, optarg, 99);
