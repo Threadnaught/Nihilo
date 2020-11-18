@@ -7,6 +7,9 @@
 
 //same as com_example, but across a network
 
+void TEMP_whatever(const char* arg){
+	printf("yeap\n");
+}
 void entry(const char* arg){
 	char* server_address = read_DB("server_address", NULL);
 	printf("querying place out of %s\n", server_address);

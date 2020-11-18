@@ -13,12 +13,11 @@
 #include "../include/platform.h"
 
 thread::locker<std::queue<host_task*>> comm_queue;
-//TODO: allow for multiple sessions between the same origin and dest (fork session)???????????????
 //TODO: crypto comparison
 //origin and dest are not for the message
 struct origin_dest{
-	unsigned char origin_pub[ecc_pub_size];
-	unsigned char dest_pub[ecc_pub_size];
+	unsigned char this_pub[ecc_pub_size];
+	unsigned char peer_pub[ecc_pub_size];
 };
 
 bool operator< (const origin_dest o1, const origin_dest o2){
@@ -170,7 +169,15 @@ bool handle_session_task(host* h, void* message){
 	
 	int param_length = padded_decrypted_size-sizeof(session_wire_task)-aes_block_size-(swt->pad_bytes & 0x0F);
 	std::cerr<<"received task name:"<<swt->t.function_name<<"\n";
-	//TODO: schedule task
+	
+	char dest_addr[max_address_len];
+	char orig_addr[max_address_len];
+	dest_addr[0] = '~';
+	bytes_to_hex(ns->pubs.this_pub,ecc_pub_size,dest_addr+1);
+	inet_ntop(AF_INET, &h->addr, orig_addr, 15);//TODO: change 15 to sizeof (in other place as well)
+	strcpy(orig_addr+strlen(orig_addr), "~");
+	bytes_to_hex(ns->pubs.peer_pub,ecc_pub_size,orig_addr+strlen(orig_addr));
+	fail_false(compute::copy_to_queue(dest_addr, orig_addr, swt->t.function_name, swt->t.on_success, swt->t.on_failure, swt+1, param_length));
 	
 	//update inbound session hash index
 	ns->this_message_count++;
@@ -196,8 +203,9 @@ bool send_create_session(host* h, unsigned char* origin_pub, unsigned char* dest
 	};
 	write(h->fd, &p, sizeof(preamble));
 	//create and send the origin/dest for this session:
-	memcpy(ns->pubs.origin_pub, origin_pub, ecc_pub_size);
-	memcpy(ns->pubs.dest_pub, dest_pub, ecc_pub_size);
+	memcpy(ns->pubs.this_pub, origin_pub, ecc_pub_size);
+	memcpy(ns->pubs.peer_pub, dest_pub, ecc_pub_size);
+
 	write(h->fd, &ns->pubs, sizeof(origin_dest));
 	//create, encrypt and send this side's session secret
 	crypto::rng(nullptr, ns->this_secret, session_secret_size);
@@ -225,12 +233,12 @@ bool handle_create_session(host* h, void* message){
 	network_session* ns = new network_session();
 	origin_dest* inbound_origin_dest = (origin_dest*)message;
 	//swap origin and dest around (our destination is the peer's origin)
-	memcpy(ns->pubs.origin_pub, inbound_origin_dest->dest_pub, sizeof(origin_dest));
-	memcpy(ns->pubs.dest_pub, inbound_origin_dest->origin_pub, sizeof(origin_dest));
+	memcpy(ns->pubs.this_pub, inbound_origin_dest->peer_pub, sizeof(origin_dest));
+	memcpy(ns->pubs.peer_pub, inbound_origin_dest->this_pub, sizeof(origin_dest));
 	//derrive shared ecc key:
 	unsigned char dest_priv[ecc_priv_size];
-	fail_false(compute::get_priv(inbound_origin_dest->dest_pub, dest_priv));
-	fail_false(crypto::derrive_shared(dest_priv, inbound_origin_dest->origin_pub, ns->encryption_key));
+	fail_false(compute::get_priv(inbound_origin_dest->peer_pub, dest_priv));
+	fail_false(crypto::derrive_shared(dest_priv, inbound_origin_dest->this_pub, ns->encryption_key));
 	//get peer's secret:
 	crypto::decrypt(ns->encryption_key, ((unsigned char*)message) + sizeof(origin_dest), session_secret_size, ns->peer_secret);
 	//create our secret:
@@ -279,8 +287,8 @@ bool handle_finalise_session(host* h, void* message){
 	origin_dest* inbound_origin_dest = (origin_dest*)message;
 	//swap origin and dest around (our destination is the peer's origin)
 	origin_dest search_target;
-	memcpy(search_target.origin_pub, inbound_origin_dest->dest_pub, sizeof(origin_dest));
-	memcpy(search_target.dest_pub, inbound_origin_dest->origin_pub, sizeof(origin_dest));
+	memcpy(search_target.this_pub, inbound_origin_dest->peer_pub, sizeof(origin_dest));
+	memcpy(search_target.peer_pub, inbound_origin_dest->this_pub, sizeof(origin_dest));
 	auto it = h->sessions.find(search_target);
 	fail_false(it != h->sessions.end());
 	network_session* ns = it->second;
@@ -562,13 +570,14 @@ bool queue_comm_to_session(host_task* ht){
 		std::cerr<<"established\n";
 	}
 	origin_dest pubs;
-	fail_false(compute::resolve_local_machine(sender_identifier, pubs.origin_pub));
-	hex_to_bytes(receiver_identifier+1, pubs.dest_pub);//todo: hex_to_bytes specific length
+	fail_false(compute::resolve_local_machine(sender_identifier, pubs.this_pub));
+	
+	hex_to_bytes(receiver_identifier+1, pubs.peer_pub);//todo: hex_to_bytes specific length
 	auto it = hosts[host_index].sessions.find(pubs);
 	if(it != hosts[host_index].sessions.end()){
 		it->second->waiting_for_transmission.push(ht);
 	} else {
-		send_create_session(&hosts[host_index], pubs.origin_pub, pubs.dest_pub, ht);
+		send_create_session(&hosts[host_index], pubs.this_pub, pubs.peer_pub, ht);
 	}
 	//TODO (see send_comm)
 	return true;
@@ -659,10 +668,10 @@ bool run_talk_worker(int port){
 		send_create_session(&fresh_con, orig, dest);*/
 		auto q = comm_queue.acquire();
 		host_task* ht = new host_task();
-		strcpy(ht->dest_addr, "nihilo_host~24DF0DBA4734475616B1B19E3DD82093FE7A7A7187CDE2ACD4A12386B60DE2BC");
+		strcpy(ht->dest_addr, "nihilo_host~27241CB8D2B1A26D4DAB290B2F8ECFAE210A1F20B3841A5D8C3E1ABB657EF7BD");
 		strcpy(ht->origin_addr, "#root");
 		ht->param_length = 0;
-		strcpy(ht->t.function_name, "YESSSSS");
+		strcpy(ht->t.function_name, "TEMP_whatever");
 		q->push(ht);
 		comm_queue.release();
 

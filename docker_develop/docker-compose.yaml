@@ -5,7 +5,7 @@ services:
     volumes:
       - ../:/nih/
     #command: /nih/bin/nih -d /nih/docker_develop/databases/hostdb -m /nih/machine_prototypes/net_example/server.json
-    command: /nih/bin/nih -d /nih/docker_develop/databases/hostdb
+    command: /nih/bin/nih -d /nih/docker_develop/databases/hostdb -m /nih/machine_prototypes/net_example/server.json
 
   pinger:
     build: ./vanilla
