@@ -639,7 +639,7 @@ bool run_talk_worker(int port){
 	host fresh_con;
 
 	if(TEMP_PING){
-		host h;
+		/*host h;
 		//open socket:
 		int connection_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
 		fail_false(connection_no >= 0);
@@ -656,7 +656,17 @@ bool run_talk_worker(int port){
 		hex_to_bytes_array(dest, "24DF0DBA4734475616B1B19E3DD82093FE7A7A7187CDE2ACD4A12386B60DE2BC", ecc_pub_size);
 		unsigned char orig[ecc_pub_size];
 		compute::resolve_local_machine("#root", orig);
-		send_create_session(&fresh_con, orig, dest);
+		send_create_session(&fresh_con, orig, dest);*/
+		auto q = comm_queue.acquire();
+		host_task* ht = new host_task();
+		strcpy(ht->dest_addr, "nihilo_host~24DF0DBA4734475616B1B19E3DD82093FE7A7A7187CDE2ACD4A12386B60DE2BC");
+		strcpy(ht->origin_addr, "#root");
+		ht->param_length = 0;
+		strcpy(ht->t.function_name, "YESSSSS");
+		q->push(ht);
+		comm_queue.release();
+
+		run_talk_worker_new(port);
 	} else {
 		/*//create listener:
 		int listener_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
