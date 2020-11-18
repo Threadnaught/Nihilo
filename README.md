@@ -6,8 +6,8 @@ This project is a follow-on to my undergraduate dissertation, https://github.com
 This project is also currently a prototype, but a bit less so than the pure ESP32 version.
 
 Nihilo is built on three pillars:
-1. Sandboxing with WASM
-2. Communication with RPCs
+1. Sandboxing with WebAssembly
+2. Communication with Remote Procedure Calls
 3. Security with Elliptic Curve Cryptography
 
 ## I'm sold, let me try
