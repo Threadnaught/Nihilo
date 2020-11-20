@@ -12,7 +12,6 @@
 
 #include "../include/platform.h"
 
-thread::locker<std::queue<host_task*>> comm_queue;
 //TODO: crypto comparison
 //origin and dest are not for the message
 struct origin_dest{
@@ -23,20 +22,21 @@ struct origin_dest{
 bool operator< (const origin_dest o1, const origin_dest o2){
 	return memcmp(&o1, &o2, sizeof(origin_dest)) < 0;
 }
+
 struct network_session{
 	bool session_finalized = false;
 	time_t timeout;
 	origin_dest pubs;
 	unsigned char encryption_key[shared_secret_size];
-	unsigned char peer_secret[session_secret_size];
+	unsigned char peer_secret[aes_block_size];
 	unsigned int peer_message_count = 0;
-	unsigned char this_secret[session_secret_size];
+	unsigned char this_secret[aes_block_size];
 	unsigned int this_message_count = 0;
 	std::queue<host_task*> waiting_for_transmission; //stores tasks while connection is not finalised
 	std::vector<host_task*> waiting_for_response;
 	//INBOUND USES OURS, OUTBOUND USES THEIRS. THIS IS TO PREVENT MESSAGE DUPLICATION ATTACKS. 
 	bool calc_hash(bool ours, unsigned char* hash_out){
-		fail_false(crypto::sha256_n_bytes((ours) ? (this_secret) : (peer_secret), shared_secret_size+sizeof(unsigned int), hash_out, shared_secret_size));
+		fail_false(crypto::sha256_n_bytes((ours) ? (this_secret) : (peer_secret), aes_block_size+sizeof(unsigned int), hash_out, aes_block_size));
 		return true;
 	}
 };
@@ -57,16 +57,15 @@ struct host{
 	int fd;
 	sockaddr_in addr; 
 	time_t timeout;
-	bool is_packet_waiting;
-	packet_header waiting_packet;
-
 	bool empty = false;
 	std::map<origin_dest, network_session*> sessions;
-	std::map<std::array<unsigned char, session_secret_size>, origin_dest> next_inbound_session_hashes;
+	std::map<std::array<unsigned char, aes_block_size>, origin_dest> next_inbound_session_hashes;
 	bool is_preamble_waiting = false;
 	preamble waiting_preamble;
 };
 
+std::vector<host> hosts;
+thread::locker<std::queue<host_task*>> comm_queue;
 
 int get_waiting(int fd){
 	int count;
@@ -108,7 +107,7 @@ bool send_task(host* h, network_session* s, host_task* t){
 	memset(decrypted, 0, post_pad_length);
 	session_wire_task* swt = (session_wire_task*)decrypted;
 	//peer secret is one of the checks that auths the message
-	memcpy(swt->peer_secret, s->peer_secret, session_secret_size);
+	memcpy(swt->peer_secret, s->peer_secret, aes_block_size);
 	swt->pad_bytes = post_pad_length - pre_pad_length;
 	//TODO: change to new style
 	memcpy(&swt->t, &t->t, sizeof(common_task));
@@ -119,7 +118,7 @@ bool send_task(host* h, network_session* s, host_task* t){
 	//sha256 hash is the other decryption check(TODO: less intensive hash)
 	fail_false(crypto::sha256_n_bytes(decrypted, checksum_start-decrypted, checksum_start, aes_block_size));
 	//the iv is the sha256(peer secret, message index)
-	unsigned char iv[session_secret_size];
+	unsigned char iv[aes_block_size];
 	fail_false(s->calc_hash(false, iv));
 	s->peer_message_count++;
 	//send the message:
@@ -148,8 +147,8 @@ bool handle_session_task(host* h, void* message){
 	//ensure this is a whole number of blocks
 	fail_false(h->waiting_preamble.message_length % aes_block_size == 0);
 	//search the iv/session hash for this session
-	std::array<unsigned char, session_secret_size> searching_for;
-	memcpy(searching_for.data(), message, session_secret_size);
+	std::array<unsigned char, aes_block_size> searching_for;
+	memcpy(searching_for.data(), message, aes_block_size);
 	auto found = h->next_inbound_session_hashes.find(searching_for);
 	fail_false(found != h->next_inbound_session_hashes.end());
 	network_session* ns = h->sessions[found->second];
@@ -163,7 +162,7 @@ bool handle_session_task(host* h, void* message){
 	fail_false(crypto::sha256_n_bytes(decypted_padded, padded_decrypted_size - aes_block_size, sha, aes_block_size));
 	fail_false(memcmp(sha, ((unsigned char*)decypted_padded)+(padded_decrypted_size - aes_block_size), aes_block_size) == 0);
 	//verify peer_secret
-	fail_false(memcmp(swt->peer_secret, ns->this_secret, session_secret_size) == 0);
+	fail_false(memcmp(swt->peer_secret, ns->this_secret, aes_block_size) == 0);
 	
 	int param_length = padded_decrypted_size-sizeof(session_wire_task)-aes_block_size-(swt->pad_bytes & 0x0F);
 	std::cerr<<"received task name:"<<swt->t.function_name<<"\n";
@@ -180,7 +179,7 @@ bool handle_session_task(host* h, void* message){
 	//update inbound session hash index
 	ns->this_message_count++;
 	h->next_inbound_session_hashes.erase(found);
-	std::array<unsigned char, session_secret_size> next;
+	std::array<unsigned char, aes_block_size> next;
 	ns->calc_hash(true, next.data());
 	h->next_inbound_session_hashes[next] = ns->pubs;
 	delete decypted_padded;
@@ -197,7 +196,7 @@ bool send_create_session(host* h, unsigned char* origin_pub, unsigned char* dest
 	//create and send the preamble
 	preamble p {
 		.type = preamble_type::create_session,
-		.message_length=(short unsigned)(sizeof(origin_dest)+crypto::calc_encrypted_size(session_secret_size))
+		.message_length=(short unsigned)(sizeof(origin_dest)+crypto::calc_encrypted_size(aes_block_size))
 	};
 	write(h->fd, &p, sizeof(preamble));
 	//create and send the origin/dest for this session:
@@ -206,8 +205,8 @@ bool send_create_session(host* h, unsigned char* origin_pub, unsigned char* dest
 
 	write(h->fd, &ns->pubs, sizeof(origin_dest));
 	//create, encrypt and send this side's session secret
-	crypto::rng(nullptr, ns->this_secret, session_secret_size);
-	fail_false(encrypt_and_send(h, ns, ns->this_secret, session_secret_size));
+	crypto::rng(nullptr, ns->this_secret, aes_block_size);
+	fail_false(encrypt_and_send(h, ns, ns->this_secret, aes_block_size));
 	ns->timeout = time(NULL) + non_final_session_timeout;
 	h->sessions[ns->pubs] = ns;
 	if(first_in_queue != nullptr) 
@@ -217,7 +216,7 @@ bool send_create_session(host* h, unsigned char* origin_pub, unsigned char* dest
 }
 bool handle_create_session(host* h, void* message){
 	std::cerr<<"handling create\n";
-	fail_false(h->waiting_preamble.message_length == sizeof(origin_dest)+crypto::calc_encrypted_size(session_secret_size));
+	fail_false(h->waiting_preamble.message_length == sizeof(origin_dest)+crypto::calc_encrypted_size(aes_block_size));
 	network_session* ns = new network_session();
 	origin_dest* inbound_origin_dest = (origin_dest*)message;
 	//swap origin and dest around (our destination is the peer's origin)
@@ -228,29 +227,29 @@ bool handle_create_session(host* h, void* message){
 	fail_false(compute::get_priv(inbound_origin_dest->peer_pub, dest_priv));
 	fail_false(crypto::derrive_shared(dest_priv, inbound_origin_dest->this_pub, ns->encryption_key));
 	//get peer's secret:
-	crypto::decrypt(ns->encryption_key, ((unsigned char*)message) + sizeof(origin_dest), session_secret_size, ns->peer_secret);
+	crypto::decrypt(ns->encryption_key, ((unsigned char*)message) + sizeof(origin_dest), aes_block_size, ns->peer_secret);
 	//create our secret:
-	crypto::rng(nullptr, ns->this_secret, session_secret_size);
+	crypto::rng(nullptr, ns->this_secret, aes_block_size);
 	//construct and send response preamble:
 	preamble p {
 		.type = preamble_type::finalise_session,
-		.message_length=(short unsigned)(sizeof(origin_dest)+crypto::calc_encrypted_size(session_secret_size*2))
+		.message_length=(short unsigned)(sizeof(origin_dest)+crypto::calc_encrypted_size(aes_block_size*2))
 	};
 	write(h->fd, &p, sizeof(preamble));
 	//send origin dest representing this session:
 	write(h->fd, &ns->pubs, sizeof(origin_dest));
 	//construct and encrypt secrets:
-	unsigned char unencrypted_secrets[session_secret_size*2];
-	unsigned char encrypted_secrets[crypto::calc_encrypted_size(session_secret_size*2)];
+	unsigned char unencrypted_secrets[aes_block_size*2];
+	unsigned char encrypted_secrets[crypto::calc_encrypted_size(aes_block_size*2)];
 	//our secret is first to stop IV reuse
-	memcpy(unencrypted_secrets, ns->this_secret, session_secret_size);
-	memcpy(unencrypted_secrets+session_secret_size, ns->peer_secret, session_secret_size);
-	fail_false(encrypt_and_send(h, ns, unencrypted_secrets, session_secret_size*2));
+	memcpy(unencrypted_secrets, ns->this_secret, aes_block_size);
+	memcpy(unencrypted_secrets+aes_block_size, ns->peer_secret, aes_block_size);
+	fail_false(encrypt_and_send(h, ns, unencrypted_secrets, aes_block_size*2));
 	//session is now final
 	ns->timeout = time(NULL) + final_session_timeout;
 	ns->session_finalized = true;
 	//update session hash index
-	std::array<unsigned char, session_secret_size> next_inbound_hash;
+	std::array<unsigned char, aes_block_size> next_inbound_hash;
 	ns->calc_hash(true, next_inbound_hash.data());
 	h->next_inbound_session_hashes[next_inbound_hash] = ns->pubs;
 	h->sessions[ns->pubs] = ns;
@@ -258,7 +257,7 @@ bool handle_create_session(host* h, void* message){
 }
 bool handle_finalise_session(host* h, void* message){
 	std::cerr<<"handling finalize\n";
-	fail_false(h->waiting_preamble.message_length == sizeof(origin_dest)+crypto::calc_encrypted_size(session_secret_size*2));
+	fail_false(h->waiting_preamble.message_length == sizeof(origin_dest)+crypto::calc_encrypted_size(aes_block_size*2));
 	//create origin/dest to search for:
 	origin_dest* inbound_origin_dest = (origin_dest*)message;
 	//swap origin and dest around (our destination is the peer's origin)
@@ -268,15 +267,15 @@ bool handle_finalise_session(host* h, void* message){
 	auto it = h->sessions.find(search_target);
 	fail_false(it != h->sessions.end());
 	network_session* ns = it->second;
-	unsigned char decrypted_secrets[shared_secret_size*2];
+	unsigned char decrypted_secrets[aes_block_size*2];
 	//first: verify our secret was parroted back to us:
 	//ours is second because otherwise an attacker could forge a session (that they
 	//couldn't use) by repeating our session create packet followed by 16 random bytes
-	fail_false(crypto::decrypt(ns->encryption_key, ((unsigned char*)message) + sizeof(origin_dest), shared_secret_size*2, decrypted_secrets));
-	fail_false(memcmp(decrypted_secrets+shared_secret_size, ns->this_secret, shared_secret_size) == 0);
-	memcpy(ns->peer_secret, decrypted_secrets, shared_secret_size);
+	fail_false(crypto::decrypt(ns->encryption_key, ((unsigned char*)message) + sizeof(origin_dest), aes_block_size*2, decrypted_secrets));
+	fail_false(memcmp(decrypted_secrets+aes_block_size, ns->this_secret, aes_block_size) == 0);
+	memcpy(ns->peer_secret, decrypted_secrets, aes_block_size);
 	ns->session_finalized = true;
-	std::array<unsigned char, session_secret_size> next_inbound_hash;
+	std::array<unsigned char, aes_block_size> next_inbound_hash;
 	ns->calc_hash(true, next_inbound_hash.data());
 	h->next_inbound_session_hashes[next_inbound_hash] = ns->pubs;
 	ns->timeout = time(NULL) + final_session_timeout;
@@ -337,7 +336,7 @@ bool handle_host(host* h){
 		
 	}
 	for(int i = 0; i < to_drop.size(); i++){
-		std::array<unsigned char, shared_secret_size> inbound_delete;
+		std::array<unsigned char, aes_block_size> inbound_delete;
 		h->sessions[to_drop[i]]->calc_hash(true, inbound_delete.data());
 		h->next_inbound_session_hashes.erase(inbound_delete);
 		h->sessions.erase(to_drop[i]);
@@ -355,8 +354,6 @@ bool handle_host(host* h){
 	}
 	return true;
 }
-
-std::vector<host> hosts;
 
 void drop(int con_no){
 	shutdown(hosts[con_no].fd, SHUT_RDWR);
@@ -419,7 +416,6 @@ bool queue_comm_to_session(host_task* ht){
 	} else {
 		send_create_session(&hosts[host_index], pubs.this_pub, pubs.peer_pub, ht);
 	}
-	//TODO (see send_comm)
 	return true;
 }
 
@@ -457,7 +453,7 @@ bool run_talk_worker(int port){
 		listener_poll.fd = listener_no;
 		listener_poll.events = POLLIN;
 		listener_poll.revents = 0;
-		poll(&listener_poll, 1, 0);//TODO: see original implementation if it goes pants
+		poll(&listener_poll, 1, 0);
 		if(listener_poll.revents != 0){
 			host con;
 			socklen_t other_len = sizeof(sockaddr_in);

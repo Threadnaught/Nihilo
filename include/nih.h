@@ -19,7 +19,6 @@
 #define max_address_len 100
 #define max_name_len 32
 #define max_retries 3
-#define session_secret_size 16
 #define non_final_session_timeout 10
 #define final_session_timeout 10
 #define empty_host_timeout 10
@@ -64,7 +63,7 @@ struct wire_task{ //task on the wire
 	common_task t;
 };
 struct session_wire_task{
-	unsigned char peer_secret[session_secret_size];
+	unsigned char peer_secret[aes_block_size];
 	unsigned char pad_bytes; //how manny bytes shorter than the encrypted length is the unencrypted length
 	common_task t;
 };
