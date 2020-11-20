@@ -45,7 +45,7 @@ enum preamble_type : unsigned char{
 	create_session = 0,
 	finalise_session = 1,
 	session_task = 2,
-	reset = 4 //TODO
+	reset = 4 //TODO: replace with keepalive???
 };
 
 struct preamble{
@@ -75,7 +75,6 @@ int get_waiting(int fd){
 }
 
 //TODO: fail_goto for all these funcs
-//TODO: eval whether this is vulnerable to a timing attack?? (wait for 500ms to send negative response??)
 
 //this code assumes shared_secret_size mod aes_block_size is 0
 //false from any of these functions should drop the whole connection immediatley
@@ -114,7 +113,6 @@ bool send_task(host* h, network_session* s, host_task* t){
 	//TODO: change to new style
 	memcpy(&swt->t, &t->t, sizeof(common_task));
 	memcpy((swt+1), (t+1), t->param_length);
-	///TODO
 	unsigned char* pad_start = ((unsigned char*)(swt+1))+t->param_length;
 	crypto::rng(nullptr, pad_start, swt->pad_bytes);
 	unsigned char* checksum_start = pad_start + swt->pad_bytes;
@@ -174,7 +172,7 @@ bool handle_session_task(host* h, void* message){
 	char orig_addr[max_address_len];
 	dest_addr[0] = '~';
 	bytes_to_hex(ns->pubs.this_pub,ecc_pub_size,dest_addr+1);
-	inet_ntop(AF_INET, &h->addr, orig_addr, 15);//TODO: change 15 to sizeof (in other place as well)
+	inet_ntop(AF_INET, &h->addr, orig_addr, sizeof(orig_addr));
 	strcpy(orig_addr+strlen(orig_addr), "~");
 	bytes_to_hex(ns->pubs.peer_pub,ecc_pub_size,orig_addr+strlen(orig_addr));
 	fail_false(compute::copy_to_queue(dest_addr, orig_addr, swt->t.function_name, swt->t.on_success, swt->t.on_failure, swt+1, param_length));
@@ -212,16 +210,6 @@ bool send_create_session(host* h, unsigned char* origin_pub, unsigned char* dest
 	fail_false(encrypt_and_send(h, ns, ns->this_secret, session_secret_size));
 	ns->timeout = time(NULL) + non_final_session_timeout;
 	h->sessions[ns->pubs] = ns;
-	//TEMP
-	/*host_task* ht = new host_task();
-	ht->param_length = 0;
-	strcpy(ht->t.function_name, "shit");
-	ns->waiting_for_transmission.emplace(ht);
-	ht = new host_task();
-	ht->param_length = 0;
-	strcpy(ht->t.function_name, "son");
-	ns->waiting_for_transmission.emplace(ht);*/
-	///TEMP
 	if(first_in_queue != nullptr) 
 		ns->waiting_for_transmission.push(first_in_queue);
 	
@@ -257,9 +245,7 @@ bool handle_create_session(host* h, void* message){
 	//our secret is first to stop IV reuse
 	memcpy(unencrypted_secrets, ns->this_secret, session_secret_size);
 	memcpy(unencrypted_secrets+session_secret_size, ns->peer_secret, session_secret_size);
-	//TODO: convert to encrypt_and_send
-	fail_false(crypto::encrypt(ns->encryption_key, unencrypted_secrets, session_secret_size*2, encrypted_secrets));
-	write(h->fd, encrypted_secrets, crypto::calc_encrypted_size(session_secret_size*2));
+	fail_false(encrypt_and_send(h, ns, unencrypted_secrets, session_secret_size*2));
 	//session is now final
 	ns->timeout = time(NULL) + final_session_timeout;
 	ns->session_finalized = true;
@@ -268,16 +254,6 @@ bool handle_create_session(host* h, void* message){
 	ns->calc_hash(true, next_inbound_hash.data());
 	h->next_inbound_session_hashes[next_inbound_hash] = ns->pubs;
 	h->sessions[ns->pubs] = ns;
-	//TEMP
-	/*host_task* ht = new host_task();
-	ht->param_length = 0;
-	strcpy(ht->t.function_name, "no");
-	ns->waiting_for_transmission.emplace(ht);
-	ht = new host_task();
-	ht->param_length = 0;
-	strcpy(ht->t.function_name, "yes");
-	ns->waiting_for_transmission.emplace(ht);*/
-	///TEMP
 	return true;
 }
 bool handle_finalise_session(host* h, void* message){
@@ -361,6 +337,9 @@ bool handle_host(host* h){
 		
 	}
 	for(int i = 0; i < to_drop.size(); i++){
+		std::array<unsigned char, shared_secret_size> inbound_delete;
+		h->sessions[to_drop[i]]->calc_hash(true, inbound_delete.data());
+		h->next_inbound_session_hashes.erase(inbound_delete);
 		h->sessions.erase(to_drop[i]);
 	}
 	//manage whole-host timeout:
@@ -372,7 +351,6 @@ bool handle_host(host* h){
 	}
 	if (h->empty && h->timeout < time(NULL)){
 		std::cerr<<"dropping connection\n";
-		//TODO: sessions, connections and failures
 		return false;
 	}
 	return true;
@@ -380,149 +358,11 @@ bool handle_host(host* h){
 
 std::vector<host> hosts;
 
-//THREAD UNSAFE, ONLY TO BE CALLED FROM THE TALK WORKER THREAD
-bool send_comm(host_task* t){
-	unsigned char* unencrypted = nullptr;
-	unsigned char* encrypted = nullptr;
-	wire_task* wire = nullptr;
-	int encrypted_buffer_size = 0;
-	int unencrypted_buffer_size = 0;
-	hostent* target_ent = nullptr;
-	host fresh_con;
-	int host_index = -1;
-	char receiver_hostname[max_address_len];
-	fail_false(compute::get_address_ip_target(t->dest_addr, receiver_hostname));
-	char receiver_identifier[max_address_len];
-	fail_false(compute::get_address_machine_target(t->dest_addr, receiver_identifier));
-	char sender_identifier[max_address_len];
-	fail_false(compute::get_address_machine_target(t->origin_addr, sender_identifier));
-	//open socket:
-	int connection_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-	fail_goto(connection_no >= 0);
-	//DNS/IP lookup:
-	target_ent = gethostbyname(receiver_hostname);
-	fail_goto(target_ent != nullptr);
-	//fresh_con ONLY USEFUL FOR A FRESH CONNECTION, USE host_index FOR EITHER A FOUND OR FRESH CONNECTION
-	memset(&fresh_con.addr, 0, sizeof(sockaddr_in));
-	fresh_con.addr.sin_family = AF_INET;
-	memcpy(&fresh_con.addr.sin_addr.s_addr, target_ent->h_addr_list[0], target_ent->h_length);
-	fresh_con.addr.sin_port = htons(tcp_port);
-	//check for already established connection:
-	char tgt_addr[20];
-	inet_ntop(AF_INET, &fresh_con.addr, tgt_addr, 15);
-	for(int i = 0; i < hosts.size(); i++){
-		char this_addr[20];
-		inet_ntop(AF_INET, &hosts[i].addr, this_addr, 20);
-		if((strcmp(this_addr, receiver_hostname)==0) || (fresh_con.addr.sin_addr.s_addr == hosts[i].addr.sin_addr.s_addr)){
-			//std::cerr<<"found!\n";
-			host_index = i;
-			break;
-		}
-	}
-	//if there is no already established connection, connect
-	if(host_index == -1){
-		fail_goto(connect(connection_no, (sockaddr*)&fresh_con.addr, sizeof(sockaddr_in)) >= 0);
-		fresh_con.fd = connection_no;
-		hosts.push_back(fresh_con);
-		host_index = hosts.size() - 1;
-		//std::cerr<<"established!\n";
-	}
-	//reset timeout:
-	hosts[host_index].timeout = time(NULL) + con_timeout;
-	//derrive shared secret:
-	if(receiver_identifier[0] != '~'){
-		std::cerr<<"destination pubkey must currently be specified\n";
-		fail_false(false);
-	}
-	hex_to_bytes_array(receiver_pub, receiver_identifier+1, ecc_pub_size);
-	unsigned char origin_pub[ecc_pub_size];
-	fail_false(compute::resolve_local_machine(t->origin_addr, origin_pub));
-	unsigned char send_priv[ecc_priv_size];
-	fail_goto(compute::get_priv(origin_pub, send_priv));
-	unsigned char secret[shared_secret_size];
-	fail_goto(crypto::derrive_shared(send_priv, receiver_pub, secret));
-	//construct and send header:
-	packet_header header;
-	memcpy(header.origin_pub, origin_pub, ecc_pub_size);
-	memcpy(header.dest_pub, receiver_pub, ecc_pub_size);
-	header.contents_length = sizeof(wire_task) + t->param_length;
-	fail_goto(write(hosts[host_index].fd, (void*)&header, sizeof(packet_header)) >= 0);
-	//std::cerr<<"wrote header\n";
-	//construct body:
-	encrypted_buffer_size = crypto::calc_encrypted_size(header.contents_length);
-	//rounded to the nearest block, but without IV
-	unencrypted_buffer_size = encrypted_buffer_size - aes_block_size;
-	unencrypted = new unsigned char[unencrypted_buffer_size];
-	//don't want to expose memory to peer
-	memset(unencrypted, 0, unencrypted_buffer_size);
-	wire = (wire_task*)unencrypted;
-	//copy over target id/task info/param
-	memcpy(wire->target_pub, header.dest_pub, ecc_pub_size);
-	memcpy(&wire->t, &t->t, sizeof(common_task));
-	if(t->param_length > 0)
-		memcpy(unencrypted+sizeof(wire_task), ((char*)t)+sizeof(host_task), t->param_length);
-	//encrypt and send body:
-	encrypted = new unsigned char[encrypted_buffer_size];
-	fail_goto(crypto::encrypt(secret, unencrypted, unencrypted_buffer_size, encrypted));
-	fail_goto(write(hosts[host_index].fd, encrypted, encrypted_buffer_size) >= 0);
-	//memory cleanup:
-	delete encrypted;
-	delete unencrypted;
-	delete t;
-	return true;
-	fail:
-	if(encrypted != nullptr)
-		delete encrypted;
-	if(unencrypted != nullptr)
-		delete unencrypted;
-	delete t;
-	return false;
-}
-
 void drop(int con_no){
 	shutdown(hosts[con_no].fd, SHUT_RDWR);
 	close(hosts[con_no].fd);
+	//TODO: schedule failures for all sessions
 	hosts.erase(hosts.begin() + con_no);
-}
-
-bool receive_body(int hostid, unsigned char* body){
-	//std::cerr<<"receiving body\n";
-	unsigned char dest_priv[ecc_priv_size];
-	int encrypted_buffer_size;
-	int unencrypted_buffer_size;
-	unsigned char* unencrypted = nullptr;
-	wire_task* t;
-	int paramlen;
-	unsigned char* param;
-	fail_goto(compute::get_priv(hosts[hostid].waiting_packet.dest_pub, dest_priv));
-	unsigned char secret[shared_secret_size];
-	crypto::derrive_shared(dest_priv, hosts[hostid].waiting_packet.origin_pub, secret);
-	encrypted_buffer_size = crypto::calc_encrypted_size(hosts[hostid].waiting_packet.contents_length);
-	//rounded to the nearest block, but without IV
-	unencrypted_buffer_size = encrypted_buffer_size - aes_block_size;
-	unencrypted = new unsigned char[unencrypted_buffer_size];
-	fail_goto(crypto::decrypt(secret, body, unencrypted_buffer_size, unencrypted));
-	t = (wire_task*)unencrypted;
-	fail_goto(memcmp(t->target_pub, hosts[hostid].waiting_packet.dest_pub, ecc_pub_size)==0);
-	//construct request on this side
-	char dest_addr[max_address_len];
-	dest_addr[0] = '~';
-	bytes_to_hex(hosts[hostid].waiting_packet.dest_pub, ecc_pub_size, dest_addr+1);
-	//if there is a parameter, attach it to the task
-	paramlen = hosts[hostid].waiting_packet.contents_length-sizeof(wire_task);
-	param = paramlen==0?nullptr:unencrypted+sizeof(wire_task);
-	char origin_addr[max_address_len];
-	inet_ntop(AF_INET, &hosts[hostid].addr, origin_addr, 15);
-	origin_addr[strlen(origin_addr)+1] = '\0';
-	origin_addr[strlen(origin_addr)] = '~';
-	bytes_to_hex(hosts[hostid].waiting_packet.origin_pub, ecc_pub_size, origin_addr + strlen(origin_addr));
-	compute::copy_to_queue(dest_addr, origin_addr, t->t.function_name, t->t.on_success, t->t.on_failure,param, paramlen);
-	delete unencrypted;
-	return true;
-	fail:
-	if(unencrypted != nullptr)
-		delete unencrypted;
-	return false;
 }
 
 bool queue_comm_to_session(host_task* ht){
@@ -546,11 +386,11 @@ bool queue_comm_to_session(host_task* ht){
 	search_address.sin_port = htons(tcp_port);
 	//check for already established connection:
 	char tgt_addr[20];
-	inet_ntop(AF_INET, &search_address, tgt_addr, 15);//TODO: 15????
+	inet_ntop(AF_INET, &search_address, tgt_addr, sizeof(tgt_addr));
 	int host_index = -1;
 	for(int i = 0; i < hosts.size(); i++){//TODO: optimise
 		char this_addr[20];
-		inet_ntop(AF_INET, &hosts[i].addr, this_addr, 20);
+		inet_ntop(AF_INET, &hosts[i].addr, this_addr, sizeof(this_addr));
 		if((strcmp(this_addr, receiver_hostname)==0) || (search_address.sin_addr.s_addr == hosts[i].addr.sin_addr.s_addr)){
 			std::cerr<<"found\n";
 			host_index = i;
@@ -583,7 +423,7 @@ bool queue_comm_to_session(host_task* ht){
 	return true;
 }
 
-bool run_talk_worker_new(int port){
+bool run_talk_worker(int port){
 	//create listener:
 	int listener_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
 	fail_false(listener_no > 0);
@@ -632,183 +472,11 @@ bool run_talk_worker_new(int port){
 		}
 		//iterate over known connections
 		for(int i = 0; i < hosts.size(); i++){
-			fail_false(handle_host(&hosts[i]));
-		}
-		usleep(10000);
-	}
-}
-bool run_talk_worker(int port){
-	//TODO: remove
-	bool TEMP_PING = port == 0;
-	port = tcp_port;
-
-
-	
-
-	host fresh_con;
-
-	if(TEMP_PING){
-		/*host h;
-		//open socket:
-		int connection_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-		fail_false(connection_no >= 0);
-		//DNS/IP lookup:
-		hostent* target_ent = gethostbyname("nihilo_host");
-		fail_false(target_ent != nullptr);
-		
-		memset(&fresh_con.addr, 0, sizeof(sockaddr_in));
-		fresh_con.addr.sin_family = AF_INET;
-		memcpy(&fresh_con.addr.sin_addr.s_addr, target_ent->h_addr_list[0], target_ent->h_length);
-		fresh_con.addr.sin_port = htons(tcp_port);
-		fail_false(connect(connection_no, (sockaddr*)&fresh_con.addr, sizeof(sockaddr_in)) >= 0);
-		fresh_con.fd = connection_no;
-		hex_to_bytes_array(dest, "24DF0DBA4734475616B1B19E3DD82093FE7A7A7187CDE2ACD4A12386B60DE2BC", ecc_pub_size);
-		unsigned char orig[ecc_pub_size];
-		compute::resolve_local_machine("#root", orig);
-		send_create_session(&fresh_con, orig, dest);*/
-		/*auto q = comm_queue.acquire();
-		host_task* ht = new host_task();
-		strcpy(ht->dest_addr, "nihilo_host~27241CB8D2B1A26D4DAB290B2F8ECFAE210A1F20B3841A5D8C3E1ABB657EF7BD");
-		strcpy(ht->origin_addr, "#root");
-		ht->param_length = 0;
-		strcpy(ht->t.function_name, "TEMP_whatever");
-		q->push(ht);*/
-		comm_queue.release();
-
-		run_talk_worker_new(port);
-	} else {
-		/*//create listener:
-		int listener_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-		fail_false(listener_no > 0);
-		//configure inbound endpoint:
-		sockaddr_in addr;
-		memset(&addr, 0, sizeof(sockaddr_in));
-		addr.sin_family = AF_INET;
-		addr.sin_port = htons(port);
-		addr.sin_addr.s_addr = INADDR_ANY;
-		//bind inbound endpoint:
-		fail_false(bind(listener_no, (sockaddr*)&addr, sizeof(sockaddr_in)) == 0);
-		fail_false(listen(listener_no,5) == 0);
-		pollfd listener_poll;
-		listener_poll.fd = listener_no;
-		listener_poll.events = POLLIN;
-		listener_poll.revents = 0;
-		while(poll(&listener_poll, 1, 0) < 0);
-		socklen_t other_len = sizeof(sockaddr_in);
-		fresh_con.fd = accept(listener_no, (sockaddr*) &fresh_con.addr, &other_len);*/
-		run_talk_worker_new(port);
-	}
-	while(true){
-		if(!handle_host(&fresh_con)){
-			break;
-		}
-		usleep(10000);
-	}
-	return true;
-}
-bool run_talk_worker_old(int port){
-	//create listener:
-	int listener_no = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-	fail_false(listener_no > 0);
-	//configure inbound endpoint:
-	sockaddr_in addr;
-	memset(&addr, 0, sizeof(sockaddr_in));
-	addr.sin_family = AF_INET;
-	addr.sin_port = htons(port);
-	addr.sin_addr.s_addr = INADDR_ANY;
-	//bind inbound endpoint:
-	fail_false(bind(listener_no, (sockaddr*)&addr, sizeof(sockaddr_in)) == 0);
-	fail_false(listen(listener_no,5) == 0);
-	//std::cerr<<"listening\n";
-	while(1){
-		//transmit comm queue
-		while(1){
-			auto c = comm_queue.acquire();
-			//if there is nothing to transmit, release and quit
-			if(c->size() == 0){
-				comm_queue.release();
-				break;
-			}
-			host_task* next = c->front();
-			c->pop();
-			comm_queue.release();
-			if(!send_comm(next)){
-				std::cerr<<"error sending comm\n";
-				if(next->retry_count++ < max_retries){
-					c = comm_queue.acquire();
-					c->push(next);
-					comm_queue.release();
-				}
-				else
-					delete next;
-			}
-		}
-		//poll for fresh incoming connections:
-		pollfd listener_poll;
-		listener_poll.fd = listener_no;
-		listener_poll.events = POLLIN;
-		listener_poll.revents = 0;
-		poll(&listener_poll, hosts.size()+1, 0);//TODO: this looks like a bug?
-		//if there is an incoming connection...
-		if(listener_poll.revents != 0){
-			host con;
-			socklen_t other_len = sizeof(sockaddr_in);
-			//accept the connection
-			int connection_no = accept(listener_no, (sockaddr*) &con.addr, &other_len);
-			//if the connection is valid, add it to the list and reset its timeout
-			if(connection_no >= 0){
-				//std::cerr<<"adding new connection\n";
-				con.fd = connection_no;
-				con.timeout = time(NULL) + con_timeout;
-				hosts.push_back(con);
-			}
-		}
-		//iterate over known connections
-		for(int i = 0; i < hosts.size(); i++){
-			//count waiting bytes
-			int count;
-			if((count = get_waiting(hosts[i].fd)) > 0){
-				//if no packet is currently waiting, and a header is in the pipe...
-				if((!hosts[i].is_packet_waiting) && count >= sizeof(packet_header)){
-					//read the header
-					read(hosts[i].fd, &hosts[i].waiting_packet, sizeof(packet_header));
-					//if the packet is too long, drop the connection
-					if(hosts[i].waiting_packet.contents_length > max_packet_size){
-						std::cerr<<"dropping (packet too long)\n";
-						drop(i--);
-						continue;
-					}
-					//if not, set packet is waiting and bump the timeout
-					hosts[i].is_packet_waiting = true;
-					//std::cerr<<"extending (header)\n";
-					hosts[i].timeout = time(NULL) + con_timeout;
-				}
-				//if a packet is waiting, and a body is in the pipe
-				if(hosts[i].is_packet_waiting && count >= hosts[i].waiting_packet.contents_length){
-					//std::cerr<<"receiving body\n";
-					//read it off the pipe
-					char* inbuf = new char[crypto::calc_encrypted_size(hosts[i].waiting_packet.contents_length)];
-					read(hosts[i].fd, inbuf, crypto::calc_encrypted_size(hosts[i].waiting_packet.contents_length));
-					if(!receive_body(i, (unsigned char*)inbuf)){
-						std::cerr<<"receive failed\n";
-						drop(i--);
-						continue;
-					}
-					delete inbuf;
-					hosts[i].is_packet_waiting = false;
-					//std::cerr<<"extending (body)\n";
-					hosts[i].timeout = time(NULL) + con_timeout;
-				}
-			}
-			//if connection has timed out, drop it
-			if(hosts[i].timeout < time(NULL)){
-				std::cerr<<"dropping (timeout)\n";
+			if(!handle_host(&hosts[i])){
 				drop(i--);
-				continue;
 			}
 		}
-	//std::cerr<<hosts.size()<<"\n";
-	usleep(10000);
+		usleep(10000);
 	}
 }
 
