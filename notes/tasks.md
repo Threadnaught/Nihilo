@@ -22,7 +22,7 @@ function:hello_world
 on_success:successful_retrieval
 ```
 
-Prior to transmission, the task must be edited into the task sent to the callee. Origin and dest public keys are embedded only during session creation, and so nihilo machine addresses are unecassary at other times. Instead of forwarding the specific function name for the success and failure conditions, a copy of the task is kept on the caller host.
+Prior to transmission, the task must be edited into the task sent to the callee. Origin/Dest addresses are not included in the task at this stage because they are embedded in session creation itself. Instead of forwarding the specific function name for the success and failure conditions, a copy of the task is kept on the caller host.
 
 ```
 id:c5f5cc25f7079aa5cbf11465a777fc53
