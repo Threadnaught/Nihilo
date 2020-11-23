@@ -4,12 +4,11 @@ Tasks are the basis of the nihilo RPC model. They each represent a call to a fun
 
 ```
 id:8a2d4366f999196655c78c3864f16769
-origin:~b32c30d4b4111fe997c6f3a0b61956010b7a3e32e42360fa4617a120f12883df
 dest:~b32c30d4b4111fe997c6f3a0b61956010b7a3e32e42360fa4617a120f12883df
 function:hello_world
 ```
 
-`on_success`, `on_failure` and `param` can all be added to specify more behaviour.
+`origin` (if different to dest),`on_success`, `on_failure` and `param` can all be added to specify more behaviour.
 
 ## Inter-host calls
 
@@ -65,7 +64,6 @@ And will be combined with the original task stored against the session on the ca
 
 ```
 id:73a3ecf50d44766aa84ad6d35d2dfc4e
-origin:~b32c30d4b4111fe997c6f3a0b61956010b7a3e32e42360fa4617a120f12883df
 dest:~b32c30d4b4111fe997c6f3a0b61956010b7a3e32e42360fa4617a120f12883df
 function:successful_retrieval
 param:hello, world!
