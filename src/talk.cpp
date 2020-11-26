@@ -115,7 +115,6 @@ bool send_task(host* h, network_session* s, host_task* t){
 	unsigned char* pad_start = ((unsigned char*)(swt+1))+t->param_length;
 	crypto::rng(nullptr, pad_start, swt->pad_bytes);
 	unsigned char* checksum_start = pad_start + swt->pad_bytes;
-	//sha256 hash is the other decryption check(TODO: less intensive hash)
 	fail_false(crypto::sha256_n_bytes(decrypted, checksum_start-decrypted, checksum_start, aes_block_size));
 	//the iv is the sha256(peer secret, message index)
 	unsigned char iv[aes_block_size];
@@ -358,7 +357,7 @@ bool handle_host(host* h){
 void drop(int con_no){
 	shutdown(hosts[con_no].fd, SHUT_RDWR);
 	close(hosts[con_no].fd);
-	//TODO: schedule failures for all sessions
+	//TODO: schedule failures
 	hosts.erase(hosts.begin() + con_no);
 }
 

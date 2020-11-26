@@ -58,13 +58,9 @@ struct host_task{//task (full)
 	common_task t;
 };
 
-struct wire_task{ //task on the wire
-	unsigned char target_pub[ecc_pub_size];
-	common_task t;
-};
 struct session_wire_task{
 	unsigned char peer_secret[aes_block_size];
-	unsigned char pad_bytes; //how manny bytes shorter than the encrypted length is the unencrypted length
+	unsigned char pad_bytes; //how many bytes shorter than the encrypted length is the unencrypted length
 	common_task t;
 };
 

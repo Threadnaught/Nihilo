@@ -1,6 +1,7 @@
 # Tasks
+_This document is a proposal_
 
-Tasks are the basis of the nihilo RPC model. They each represent a call to a function in a specific machine, originating from a specific machine. Tasks are represented as collections keys and values, a simple task follows;
+Tasks are the basis of the nihilo RPC model. They each represent a call to a function in a specific machine, originating from a specific machine. Tasks are represented as collections of keys and values, a simple task follows;
 
 ```
 id:8a2d4366f999196655c78c3864f16769
