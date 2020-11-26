@@ -19,6 +19,9 @@
 #define max_address_len 100
 #define max_name_len 32
 #define max_retries 3
+#define non_final_session_timeout 10
+#define final_session_timeout 10
+#define empty_host_timeout 10
 
 struct machine_keypair{
 	unsigned char ecc_pub[ecc_pub_size];
@@ -55,8 +58,9 @@ struct host_task{//task (full)
 	common_task t;
 };
 
-struct wire_task{ //task on the wire
-	unsigned char target_pub[ecc_pub_size];
+struct session_wire_task{
+	unsigned char peer_secret[aes_block_size];
+	unsigned char pad_bytes; //how many bytes shorter than the encrypted length is the unencrypted length
 	common_task t;
 };
 
@@ -88,7 +92,6 @@ namespace compute{
 	bool get_priv(unsigned char* pub, unsigned char* priv_out);
 	bool new_machine(const char* name, unsigned char* pub_out);
 	void* get_wasm(unsigned char* pub, int* length);
-	void get_root_machine(unsigned char* pub_out); //(TEMP/DEBUG)
 	bool load_from_proto_file(const char* proto_path);
 	bool load_from_proto(cJSON* mach, const char* working_dir);
 	bool get_address_ip_target(const char* address, char* ip_target_out);//get IP/DNS/hostname from nih address

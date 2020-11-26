@@ -1,14 +1,7 @@
-default: recall.o crypto.o runtime.o intercepts.o ../../include/*.h ../../src/*.o
-	g++ -L../../common_deps/wasm-micro-runtime/product-mini/platforms/linux/build/ -g ../../src/*.o *.o  -o ../../bin/nih -lleveldb -lmbedcrypto -lvmlib -lcjson -pthread -lmicrohttpd
+bin_dir := ../../bin/platform/linux
 
-recall.o: recall.cpp ../../include/*.h
-	g++ -g -c recall.cpp
+default: $(bin_dir)/recall.o $(bin_dir)/crypto.o $(bin_dir)/runtime.o $(bin_dir)/intercepts.o ../../include/*.h ../../src/*.o
+	$(CXX) -L../../common_deps/wasm-micro-runtime/product-mini/platforms/linux/build/ -g ../../bin/src/*.o $(bin_dir)/*.o  -o ../../bin/nih -lleveldb -lmbedcrypto -lvmlib -lcjson -pthread -lmicrohttpd
 
-crypto.o: crypto.cpp ../../include/*.h
-	g++ -g -c crypto.cpp
-
-runtime.o: runtime.cpp ../../include/*.h
-	g++ -I../../common_deps/wasm-micro-runtime/core/iwasm/include/ -g -c runtime.cpp
-
-intercepts.o: intercepts.cpp ../../include/*.h
-	g++ -I../../common_deps/wasm-micro-runtime/core/iwasm/include/ -g -c intercepts.cpp -lmicrohttpd
+$(bin_dir)/%.o: %.cpp ../../include/*.h
+	$(CXX) -I../../common_deps/wasm-micro-runtime/core/iwasm/include/  -g -c $< -o $@

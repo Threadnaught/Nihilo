@@ -9,7 +9,7 @@
 #include"../../include/platform.h"
 
 namespace crypto{
-	bool encrypt(const unsigned char* secret, const unsigned char* to_encrypt, int to_encrypt_len, unsigned char* encrypted_buf){
+	bool encrypt(const unsigned char* secret, const unsigned char* to_encrypt, int to_encrypt_len, unsigned char* encrypted_buf, bool iv_already_populated){
 		//verify valid size:
 		fail_false(to_encrypt_len % aes_block_size == 0);
 		mbedtls_aes_context aes;
@@ -19,7 +19,8 @@ namespace crypto{
 		//start with initialization vector:
 		unsigned char* init_vector_source = encrypted_buf;
 		encrypted_buf += aes_block_size;
-		rng(nullptr, init_vector_source, aes_block_size);
+		if(!iv_already_populated)
+			rng(nullptr, init_vector_source, aes_block_size);
 		//mbedtls_aes_crypt_cbc alters IV buffer
 		unsigned char init_vector[aes_block_size];
 		memcpy(init_vector, init_vector_source, aes_block_size);
@@ -80,8 +81,25 @@ namespace crypto{
 	}
 	
 	int rng(void* state, unsigned char* outbytes, size_t len){
-		FILE* rand = fopen("/dev/urandom", "rb");//TODO: eval if urandom is good?
+		FILE* rand = fopen("/dev/urandom", "rb");
 		fread(outbytes, 1, len, rand);
 		return 0;
+	}
+	
+	//writes the first n bytes of the sha256 of inbytes to outbytes
+	bool sha256_n_bytes(const void* inbytes, int inlen, unsigned char* hash, int n){
+		fail_false(n <= 32);
+		fail_false(n > 0);
+		unsigned char raw_hash[32];
+		mbedtls_sha256_context sha;
+		mbedtls_sha256_init(&sha);
+		//drop SHA256 of public key into pub_digest
+		fail_false(mbedtls_sha256_starts_ret(&sha, 0) == 0);
+		fail_false(mbedtls_sha256_update_ret(&sha, (unsigned char*)inbytes, inlen) == 0);
+		fail_false(mbedtls_sha256_finish_ret(&sha, raw_hash) == 0);
+		memcpy(hash, raw_hash, n);
+		//copy first ID_size bytes into id
+		mbedtls_sha256_free(&sha);
+		return true;
 	}
 }

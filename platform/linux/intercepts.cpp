@@ -66,18 +66,18 @@ void http_register(host_task* t){
 		t->ret_len = 0;
 		return;
 	}
-	std::array<unsigned char, resource_id_size> daemon_key;
-	crypto::rng(nullptr, daemon_key.data(), resource_id_size);
+	std::array<unsigned char, resource_id_size>* daemon_key = new std::array<unsigned char, resource_id_size>();
+	crypto::rng(nullptr, daemon_key->data(), resource_id_size);
 	auto ds = daemons.acquire();
 	HTTP_Daemon d;
-	d.d = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION, 8080, NULL, NULL, &http_handler, daemon_key.data(), MHD_OPTION_END);
+	d.d = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION, 8080, NULL, NULL, &http_handler, daemon_key->data(), MHD_OPTION_END);
 	strcpy(d.handler_address, t->origin_addr);
 	strcpy(d.server_address, t->dest_addr);
 	strcpy(d.handler_func, ((char*)t)+sizeof(host_task));
-	(*ds)[daemon_key] = d;
+	(*ds)[*daemon_key] = d;
 	daemons.release();
 	char* daemon_key_hex = new char[(resource_id_size*2)+1];
-	bytes_to_hex(daemon_key.data(), resource_id_size, daemon_key_hex);
+	bytes_to_hex(daemon_key->data(), resource_id_size, daemon_key_hex);
 	t->success = 1;
 	t->ret = daemon_key_hex;
 	t->ret_len = (resource_id_size*2)+1;
