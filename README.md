@@ -14,6 +14,17 @@ Nihilo is built on three pillars:
 
 Glad to hear it! Install cURL and docker and type this into a linux terminal.
 
-`curl https://raw.githubusercontent.com/Threadnaught/Nihilo/master/scripts/NihDock.sh | bash`
+```
+curl https://raw.githubusercontent.com/Threadnaught/Nihilo/master/scripts/NihDock.sh | bash
+```
 
-If you `cd Nih`, you are in a directory wtih the Dockerfile, `enter.sh`, and this repo.
+This will take ~20 minutes to complete. Once it does, you will have a directory called `Nih`. In order to run an example, you can type this:
+
+```
+cd Nih
+./enter.sh
+cd /nih/
+./bin/nih -m machine_prototypes/hello_world/hello_world.json -e
+```
+
+This should print "Hello World" to the console. The 32-byte hex string you see (repeated twice) is the public key for the machine specified in `hello_world.json`. Public keys are used as IDs in Nihilo. Machines communicate inside of and between hosts using their public keys, so every machine-level communication is designed to be only encrypted or decrypted by the sender or receiver.
