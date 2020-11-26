@@ -23,8 +23,13 @@ This will take ~20 minutes to complete. Once it does, you will have a directory 
 ```
 cd Nih
 ./enter.sh
+```
+
+You are now in a docker container set up to run Nihilo. You can run a hello world program like this:
+
+```
 cd /nih/
 ./bin/nih -m machine_prototypes/hello_world/hello_world.json -e
 ```
 
-This should print "Hello World" to the console. The 32-byte hex string you see (repeated twice) is the public key for the machine specified in `hello_world.json`. Public keys are used as IDs in Nihilo. Machines communicate inside of and between hosts using their public keys, so every machine-level communication is designed to be only encrypted or decrypted by the sender or receiver.
+This should print "Hello World" to the console. The 32-byte hex string you see is the public key for the machine specified in `hello_world.json`. Public keys are used as IDs in Nihilo. Machines communicate inside of and between hosts using their public keys, so every machine-level communication is designed to be only encrypted or decrypted by the sender or receiver.
